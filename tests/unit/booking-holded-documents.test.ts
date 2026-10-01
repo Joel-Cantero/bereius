@@ -81,6 +81,23 @@ describe("Holded numbering series", () => {
     expect(http.requests[0].logicalUrl).toBe(`${HOLDED_BASE_URL}/numbering-series/estimate`);
   });
 
+  it.each([
+    ["estimate", "L\u00ednea E", "E"],
+    ["invoice", "L\u00ednea F", "F"],
+    ["estimate", "  linea e  ", "E"],
+    ["invoice", "LINEA F", "F"],
+    ["estimate", "E", "E"],
+    ["invoice", "F", "F"],
+    ["estimate", "L\u00ednea Especial", "L\u00ednea Especial"],
+    ["invoice", "F 2027", "F 2027"],
+  ] as const)("normalizes %s series %s without changing its identifier", async (type, name, expected) => {
+    const { client } = holded([page({ items: [{ id: "series-1", name }] })]);
+
+    await expect(client.listNumberingSeries(type)).resolves.toEqual([
+      { id: "series-1", name: expected },
+    ]);
+  });
+
   it("reuses a numbering-series read", async () => {
     const { http, client } = holded([
       page({ items: [{ id: "s1", name: "E" }] }),
