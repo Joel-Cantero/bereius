@@ -534,6 +534,11 @@ export interface HoldedClient {
   ): Promise<void>;
   createInvoice(input: HoldedInvoiceInput): Promise<HoldedDocumentResult>;
   replaceEstimateLines(estimateId: string, items: HoldedDocumentLine[]): Promise<void>;
+  removeEstimateDeductions(estimateId: string, input: {
+    contactId: string;
+    names: readonly string[];
+    serviceIds: readonly string[];
+  }): Promise<boolean>;
 }
 
 function classify(outcome: ProviderHttpOutcome): HoldedError | null {
@@ -1412,6 +1417,37 @@ export function createHoldedClient(
         payment_method_id: input.paymentMethodId,
         items: input.items.map(toLine),
       });
+    },
+
+    async removeEstimateDeductions(estimateId, input) {
+      const schema = z.object({
+        id: z.string(),
+        contact_id: z.string(),
+        tax_included: z.boolean(),
+        lines: z.array(z.object({
+          name: z.string().nullish(),
+          service_id: z.string().nullish(),
+          units: z.union([z.string(), z.number()]),
+          price: z.union([z.string(), z.number()]),
+        }).passthrough()).min(1),
+      });
+      const parsed = schema.safeParse(await request("GET", `/estimates/${estimateId}`));
+      if (!parsed.success || parsed.data.id !== estimateId || parsed.data.contact_id !== input.contactId ||
+        parsed.data.lines.some((line) => parseDecimal(line.price) === null || parseDecimal(line.units) === null)) {
+        throw new HoldedError("malformed_response", "Estimate lines could not be safely verified");
+      }
+      const names = new Set(input.names.map((name) => name.trim().toLowerCase()));
+      const serviceIds = new Set(input.serviceIds);
+      const items = parsed.data.lines.filter((line) => !(parseDecimal(line.price)! < 0 &&
+        (names.has(line.name?.trim().toLowerCase() ?? "") || serviceIds.has(line.service_id ?? ""))));
+      if (items.length === parsed.data.lines.length) return false;
+      if (items.length === 0) throw new HoldedError("invalid_request", "Removing deductions would leave an empty estimate");
+      try {
+        await request("PUT", `/estimates/${estimateId}`, { tax_included: parsed.data.tax_included, items });
+      } finally {
+        invalidateCachedHoldedReads(`${credentialScope}:estimate:`);
+      }
+      return true;
     },
 
     async replaceEstimateLines(estimateId, items) {

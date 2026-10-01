@@ -213,7 +213,7 @@ test("requires a reason to reject and records it", async ({ page, context, baseU
 
 for (const [locale, messages] of Object.entries({ en: enMessages, es: esMessages, ca: caMessages })) {
   for (const mobile of [false, true]) {
-    test(`${mobile ? "@mobile " : ""}recovers a dead quote and shows operation logs in ${locale}`, async ({ page, context, baseURL }, testInfo) => {
+    test(`${mobile ? "@mobile " : ""}recovers a dead quote and shows unified history in ${locale}`, async ({ page, context, baseURL }, testInfo) => {
       const seeded = await seedAuthenticatedUser({ name: "Operator" });
       await installAuthSessionCookie(context, seeded.sessionToken, baseURL ?? "http://127.0.0.1:3100");
       const booking = await seedBookingRequest();
@@ -230,25 +230,57 @@ for (const [locale, messages] of Object.entries({ en: enMessages, es: esMessages
            VALUES ($1,$2,'QUOTE_FAILED','incomplete_configuration')`,
           [`event_${randomUUID()}`, booking.id],
         );
+        await pool.query(
+          `INSERT INTO "BookingOperationEvent" ("id","bookingRequestId","type","failureCode","createdAt") VALUES
+           ($1,$5,'DELIVERY_STARTED',NULL,'2026-09-30T12:01:00Z'),
+           ($2,$5,'DELIVERY_ACCEPTED',NULL,'2026-09-30T12:02:00Z'),
+           ($3,$5,'DELIVERY_STARTED',NULL,'2026-09-30T12:03:00Z'),
+           ($4,$5,'DELIVERY_FAILED','invalid_request','2026-09-30T12:04:00Z')`,
+          [randomUUID(), randomUUID(), randomUUID(), randomUUID(), booking.id],
+        );
+        await pool.query(
+          `INSERT INTO "BookingAuditEvent" ("id","bookingRequestId","fromState","toState","reason","createdAt")
+           VALUES ($1,$2,NULL,'IN_REVIEW','Initial review','2026-09-30T12:00:00Z')`,
+          [randomUUID(), booking.id],
+        );
         const prefix = locale === "en" ? "" : `/${locale}`;
         await page.goto(`${prefix}/bookings/${booking.id}`);
         const button = page.getByRole("button", { name: messages.Bookings.actions.resendQuote });
         await expect(button).toBeEnabled();
-        const logs = page.getByRole("region", { name: messages.Bookings.operations.title });
+        const logs = page.getByRole("region", { name: messages.Bookings.detail.history });
         await expect(logs).toContainText(messages.Bookings.operations.events.QUOTE_FAILED);
-        await expect(logs).toContainText("incomplete_configuration");
+        await logs.getByRole("button", { name: messages.Bookings.operations.events.QUOTE_FAILED }).hover();
+        await expect(page.getByRole("tooltip")).toContainText(messages.Bookings.operations.reasons.incomplete_configuration);
+        await expect(logs.getByRole("listitem")).toHaveCount(4);
+        await expect(logs).not.toContainText(messages.Bookings.operations.events.DELIVERY_STARTED);
+        await expect(logs.getByRole("listitem").nth(0)).toContainText(messages.Bookings.operations.events.QUOTE_FAILED);
+        await expect(logs.getByRole("listitem").nth(1)).toContainText(messages.Bookings.operations.events.DELIVERY_FAILED);
+        await expect(logs.getByRole("listitem").nth(2)).toContainText(messages.Bookings.operations.events.DELIVERY_ACCEPTED);
+        await expect(logs.getByRole("listitem").nth(3)).toContainText("Initial review");
+        await expect(logs.getByRole("img", { name: messages.Bookings.operations.events.DELIVERY_ACCEPTED })).toHaveClass(/text-green-600/);
+        const failed = logs.getByRole("button", { name: messages.Bookings.operations.events.DELIVERY_FAILED });
+        await expect(failed.locator("svg")).toHaveClass(/text-red-600/);
+        const errorTooltip = page.getByRole("tooltip").filter({ hasText: messages.Bookings.operations.reasons.invalid_request });
+        await failed.hover();
+        await expect(errorTooltip).toHaveAttribute("data-open", "");
+        await logs.getByRole("heading").hover();
+        await expect(errorTooltip).not.toHaveAttribute("data-open", "");
+        await failed.focus();
+        await expect(errorTooltip).toHaveAttribute("data-open", "");
         await button.click();
         await expect(page.getByText(messages.Bookings.actions.quoteQueued)).toBeVisible();
         await expect(button).toBeDisabled();
+        await expect(page.getByRole("tooltip")).toHaveCount(0);
         await expect(logs).toContainText(messages.Bookings.operations.events.QUOTE_REQUESTED);
+        await expect(logs.getByRole("listitem").first()).toContainText(messages.Bookings.operations.events.QUOTE_REQUESTED);
         expect(await countQueuedQuotes(booking.id)).toBe(1);
         const requests = await pool.query<{ actorUserId: string }>(
           `SELECT "actorUserId" FROM "BookingOperationEvent" WHERE "bookingRequestId" = $1 AND "type" = 'QUOTE_REQUESTED'`, [booking.id],
         );
         expect(requests.rows).toEqual([{ actorUserId: seeded.userId }]);
         expect(await readBookingState(booking.id)).toBe("AWAITING_PAYMENT");
-        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await page.screenshot({ path: testInfo.outputPath("quote-recovery.png"), fullPage: true });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       } finally {
         await pool.end();
       }

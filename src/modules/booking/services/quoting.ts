@@ -37,9 +37,6 @@ import {
 
 /** Holded identifies a rate by key, confirmed against the account's tax list. */
 const VAT_TAX_KEY = `s_iva_${VAT_PERCENT}`;
-// A refundable deposit is not consideration for a service, so it stays out of
-// the taxable base entirely rather than being taxed at zero.
-const UNTAXED_KEY = "s_iva_nosujeto";
 
 /** The account's series names; matched by name so no identifier is configured. */
 const SERIES_NAMES: Record<HoldedNumberingType, string> = {
@@ -227,11 +224,19 @@ async function generateQuote(
     linkedEstimate.sentAt !== null || linkedEstimate.delivery !== null
   );
   if (payload.resend === true && linkedEstimate && quoteReady) {
+    if (linkedEstimate.sentAt || linkedEstimate.delivery?.status === "ACCEPTED") return;
     const estimate = await client.getEstimate(linkedEstimate.holdedId);
-    if (!estimate || estimate.contactId !== booking.customer.holdedContactId) {
+    if (!estimate || !booking.customer.holdedContactId || estimate.contactId !== booking.customer.holdedContactId) {
       throw new QuotingError("incomplete_configuration", "Linked estimate could not be verified");
     }
+    await client.removeEstimateDeductions(linkedEstimate.holdedId, {
+      contactId: booking.customer.holdedContactId,
+      names: [DEPOSIT_LINE.name, ADVANCE_LINE.name, "Bestreta"],
+      serviceIds: [config.depositServiceId, config.advanceServiceId].filter((id): id is string => Boolean(id)),
+    });
     await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
+    await client.approveEstimate(linkedEstimate.holdedId);
+    await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
     const delivery = await prepareDocumentDelivery(linkedEstimate.id, client);
     if (delivery) {
       await deliverPreparedDocument(linkedEstimate.id, client, config.mailTemplateId, bookingManagementSubject(config.language));
@@ -312,8 +317,8 @@ async function generateQuote(
     client.readService(depositServiceId, { fresh: true }),
   ]);
   const stayAccountId = accountOf(stayService, "stay");
-  const advanceAccountId = accountOf(advanceService, "advance");
-  const depositAccountId = accountOf(depositService, "deposit");
+  accountOf(advanceService, "advance");
+  accountOf(depositService, "deposit");
 
   const quote = quoteStay({
     boardType: booking.boardType,
@@ -355,8 +360,6 @@ async function generateQuote(
     description: stayPhrase,
   };
 
-  // Step 3 — estimate. Created numbered but still a draft; it is approved at
-  // the end, once the deduction lines are on it.
   const existingEstimate = booking.documents.find((doc) => doc.type === "ESTIMATE");
   let estimateId = existingEstimate?.holdedId ?? null;
   let estimateDocumentId = existingEstimate?.id ?? null;
@@ -390,29 +393,7 @@ async function generateQuote(
 
   const paymentDueAt = booking.paymentDueAt ?? paymentDeadlineFrom(new Date());
 
-  // Step 4 — show the advance and deposit deductions on the estimate. The
-  // reserve invoice is issued only after a real bank movement is linked.
-  await client.replaceEstimateLines(estimateId, [
-    stayLine,
-    {
-      name: DEPOSIT_LINE.name,
-      serviceId: depositServiceId,
-      accountId: depositAccountId,
-      units: 1,
-      price: -centsToAmount(quote.depositCents),
-      taxes: [UNTAXED_KEY],
-      description: DEPOSIT_LINE.description,
-    },
-    {
-      name: ADVANCE_LINE.name,
-      serviceId: advanceServiceId,
-      accountId: advanceAccountId,
-      units: 1,
-      price: -centsToAmount(quote.advanceCents),
-      taxes: [VAT_TAX_KEY],
-      description: ADVANCE_LINE.description,
-    },
-  ]);
+  await client.replaceEstimateLines(estimateId, [stayLine]);
 
   // Step 5 — approve, which takes the estimate out of draft, then send. The
   // customer must receive the final document, not the working copy.

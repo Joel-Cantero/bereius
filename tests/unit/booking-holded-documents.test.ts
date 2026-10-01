@@ -46,6 +46,38 @@ async function codeOf(operation: Promise<unknown>): Promise<string> {
   throw new Error("expected the call to be refused");
 }
 
+describe("contract deduction correction", () => {
+  const input = { contactId: "contact-1", names: ["Dipòsit", "Reserva"], serviceIds: ["advance-service"] };
+  const stay = { name: "Stay", price: "29.09", units: 50, account: "stay-account", taxes: ["s_iva_10"], discount: 7 };
+
+  it.each([true, false])("removes only known negative payment lines and preserves tax mode %s", async (taxIncluded) => {
+    const unrelated = { name: "Other discount", price: -10, units: 1, taxes: ["s_iva_10"] };
+    const positiveDeposit = { name: "Dipòsit", price: 20, units: 1, taxes: [] };
+    const { client, http } = holded([
+      page({ id: "estimate-1", contact_id: "contact-1", tax_included: taxIncluded, lines: [
+        stay, { name: "Dipòsit", price: -200, units: 1 }, { name: "Reserva", price: -436.35, units: 1 },
+        { name: "Historic advance", service_id: "advance-service", price: -100, units: 1 }, unrelated, positiveDeposit,
+      ] }), status(200),
+    ]);
+    expect(await client.removeEstimateDeductions("estimate-1", input)).toBe(true);
+    expect(sentBody(http.requests[1].body)).toEqual({ tax_included: taxIncluded, items: [stay, unrelated, positiveDeposit] });
+  });
+
+  it("does not write when the contract already has no deductions", async () => {
+    const { client, http } = holded([page({ id: "estimate-1", contact_id: "contact-1", tax_included: true, lines: [stay] })]);
+    expect(await client.removeEstimateDeductions("estimate-1", input)).toBe(false);
+    expect(http.requests).toHaveLength(1);
+  });
+
+  it.each([
+    { lines: [] }, { contact_id: "other-contact" }, { tax_included: undefined }, { lines: [{ ...stay, price: "not-an-amount" }] },
+  ])("refuses an unsafe remote document without writing", async (override) => {
+    const { client, http } = holded([page({ id: "estimate-1", contact_id: "contact-1", tax_included: true, lines: [stay], ...override })]);
+    expect(await codeOf(client.removeEstimateDeductions("estimate-1", input))).toBe("malformed_response");
+    expect(http.requests).toHaveLength(1);
+  });
+});
+
 describe("Holded failure classification", () => {
   it.each([
     [status(403), "unauthorized"],
