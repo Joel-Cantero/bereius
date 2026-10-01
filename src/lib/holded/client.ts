@@ -1361,7 +1361,13 @@ export function createHoldedClient(
         async () => {
           const payload = await request("GET", `/numbering-series/${type}`);
           const { options } = readCataloguePage(payload);
-          return options;
+          return options.map((option) => ({
+            ...option,
+            name: option.name.replace(
+              /^l[i\u00ed]nea\s+([ef])$/iu,
+              (_label, series: string) => series.toUpperCase(),
+            ),
+          }));
         },
       );
     },
