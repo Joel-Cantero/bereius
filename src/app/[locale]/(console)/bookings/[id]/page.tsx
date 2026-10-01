@@ -25,7 +25,8 @@ import {
 } from "@/modules/booking/actions/decisions";
 import { AuthorizationError, requireBookingActor } from "@/modules/booking/authorization";
 import { ContactSyncButton } from "@/modules/booking/components/contact-sync";
-import { DecisionForm, PaymentForm } from "@/modules/booking/components/decision-forms";
+import { resendQuoteAction } from "@/modules/booking/actions/quotes";
+import { DecisionForm, PaymentForm, QuoteResendForm } from "@/modules/booking/components/decision-forms";
 import { BookingStateBadge } from "@/modules/booking/components/state-badge";
 import { inspectCustomerContact } from "@/modules/booking/services/contact-sync";
 import { estimateNamesStay } from "@/modules/booking/services/contracts";
@@ -114,6 +115,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
     reserveInvoiceStatus === "reserveInvoiceBlocked" ||
     reserveInvoiceStatus === "reserveInvoiceUnknown" ||
     reserveInvoiceStatus === "reserveInvoiceDeliveryUnknown";
+  const canResendQuote = booking.state === "AWAITING_PAYMENT" ||
+    (linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state));
 
   // Linking an estimate approves the request, so the picker is only offered
   // while the request is under review and nothing is linked yet, and only for
@@ -387,6 +390,13 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             ))}
           </ul>
         )}
+        {canResendQuote ? (
+          <QuoteResendForm
+            action={resendQuoteAction}
+            bookingRequestId={booking.id}
+            disabled={hasUnknownEstimateDelivery || linkedEstimate?.delivery?.status === "IN_FLIGHT"}
+          />
+        ) : null}
       </section>
 
       <section aria-labelledby="payments-heading" className="flex flex-col gap-1">
@@ -445,6 +455,26 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             variant="danger"
           />
         ) : null}
+      </section>
+
+      <section aria-labelledby="operation-logs-heading" className="flex flex-col gap-1">
+        <h2 id="operation-logs-heading" className="text-lg font-medium">{t("operations.title")}</h2>
+        {booking.operationEvents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t("operations.empty")}</p>
+        ) : (
+          <ol className="flex flex-col gap-2 text-sm">
+            {booking.operationEvents.map((event) => (
+              <li key={event.id}>
+                <time dateTime={event.createdAt.toISOString()} className="text-muted-foreground">
+                  {dateTimeFormat.format(event.createdAt)}
+                </time>{" "}
+                {t(`operations.events.${event.type}`)}
+                {event.actor?.name ? ` · ${event.actor.name}` : ""}
+                {event.failureCode ? ` · ${t("operations.failure", { code: event.failureCode })}` : ""}
+              </li>
+            ))}
+          </ol>
+        )}
       </section>
 
       <section aria-labelledby="history-heading" className="flex flex-col gap-1">

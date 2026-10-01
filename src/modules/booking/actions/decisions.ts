@@ -31,6 +31,8 @@ export type DecisionActionState =
         | "state_changed"
         | "reason_required"
         | "amount_mismatch"
+        | "quote_busy"
+        | "quote_delivery_unknown"
         | "unknown";
     };
 

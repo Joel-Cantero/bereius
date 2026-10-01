@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import { test, expect } from "@playwright/test";
 import { Pool } from "pg";
+import enMessages from "../../src/messages/en.json";
+import esMessages from "../../src/messages/es.json";
+import caMessages from "../../src/messages/ca.json";
 
 import {
   cleanupAuthenticatedUsers,
@@ -207,3 +210,48 @@ test("requires a reason to reject and records it", async ({ page, context, baseU
   const rejection = events.find((event) => event.toState === "REJECTED");
   expect(rejection?.reason).toBe("The dates are no longer available");
 });
+
+for (const [locale, messages] of Object.entries({ en: enMessages, es: esMessages, ca: caMessages })) {
+  for (const mobile of [false, true]) {
+    test(`${mobile ? "@mobile " : ""}recovers a dead quote and shows operation logs in ${locale}`, async ({ page, context, baseURL }, testInfo) => {
+      const seeded = await seedAuthenticatedUser({ name: "Operator" });
+      await installAuthSessionCookie(context, seeded.sessionToken, baseURL ?? "http://127.0.0.1:3100");
+      const booking = await seedBookingRequest();
+      const pool = getPool();
+      try {
+        await pool.query(`UPDATE "BookingRequest" SET "state" = 'AWAITING_PAYMENT' WHERE "id" = $1`, [booking.id]);
+        await pool.query(
+          `INSERT INTO "IntegrationJob" ("id","kind","idempotencyKey","payload","status","attempts","updatedAt")
+           VALUES ($1,'booking.quote',$2,$3::jsonb,'DEAD',6,NOW())`,
+          [`job_${randomUUID()}`, `booking.quote:${booking.id}`, JSON.stringify({ bookingRequestId: booking.id })],
+        );
+        await pool.query(
+          `INSERT INTO "BookingOperationEvent" ("id","bookingRequestId","type","failureCode")
+           VALUES ($1,$2,'QUOTE_FAILED','incomplete_configuration')`,
+          [`event_${randomUUID()}`, booking.id],
+        );
+        const prefix = locale === "en" ? "" : `/${locale}`;
+        await page.goto(`${prefix}/bookings/${booking.id}`);
+        const button = page.getByRole("button", { name: messages.Bookings.actions.resendQuote });
+        await expect(button).toBeEnabled();
+        const logs = page.getByRole("region", { name: messages.Bookings.operations.title });
+        await expect(logs).toContainText(messages.Bookings.operations.events.QUOTE_FAILED);
+        await expect(logs).toContainText("incomplete_configuration");
+        await button.click();
+        await expect(page.getByText(messages.Bookings.actions.quoteQueued)).toBeVisible();
+        await expect(button).toBeDisabled();
+        await expect(logs).toContainText(messages.Bookings.operations.events.QUOTE_REQUESTED);
+        expect(await countQueuedQuotes(booking.id)).toBe(1);
+        const requests = await pool.query<{ actorUserId: string }>(
+          `SELECT "actorUserId" FROM "BookingOperationEvent" WHERE "bookingRequestId" = $1 AND "type" = 'QUOTE_REQUESTED'`, [booking.id],
+        );
+        expect(requests.rows).toEqual([{ actorUserId: seeded.userId }]);
+        expect(await readBookingState(booking.id)).toBe("AWAITING_PAYMENT");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.screenshot({ path: testInfo.outputPath("quote-recovery.png"), fullPage: true });
+      } finally {
+        await pool.end();
+      }
+    });
+  }
+}

@@ -895,6 +895,22 @@
     }
   },
   "Bookings": {
+    "operations": {
+      "title": "Logs",
+      "empty": "No operations have been recorded yet.",
+      "failure": "Reason: {code}",
+      "events": {
+        "QUOTE_REQUESTED": "Quote creation or resend queued",
+        "ESTIMATE_CREATED": "Estimate created and linked in Holded",
+        "ESTIMATE_REUSED": "Linked estimate reused without creating another",
+        "ESTIMATE_APPROVED": "Estimate approved in Holded",
+        "DELIVERY_STARTED": "Document delivery started",
+        "DELIVERY_ACCEPTED": "Document delivery accepted by Holded",
+        "DELIVERY_FAILED": "Document delivery rejected; not sent",
+        "DELIVERY_UNKNOWN": "Delivery outcome unknown; resend blocked",
+        "QUOTE_FAILED": "Quote processing stopped because of an error"
+      }
+    },
     "queue": {
       "title": "Booking requests",
       "description": "Review and decide on booking requests.",
@@ -959,6 +975,9 @@
       "reasonLabel": "Reason",
       "reasonHint": "Recorded in the history and sent to the requester.",
       "recordPayment": "Record payment",
+      "resendQuote": "Send quote again",
+      "queuingQuote": "Queuing the quote...",
+      "quoteQueued": "Request recorded. The quote is pending processing.",
       "amountLabel": "Amount received (EUR)",
       "receivedAtLabel": "Received on",
       "referenceLabel": "Transfer reference",
@@ -1053,6 +1072,8 @@
       "state_changed": "Someone else changed this booking. Reload to see the current state.",
       "reason_required": "A reason is required.",
       "amount_mismatch": "The amount does not match what is owed to the cent. Review it by hand.",
+      "quote_busy": "A request is already running or was made recently. Reload before trying again.",
+      "quote_delivery_unknown": "Cannot resend while the previous delivery is running or its outcome is unknown. Check it in Holded.",
       "authentication": "The service refused the credential. Check that it is correct and carries the right permissions.",
       "connection": "The service could not be reached. Try again shortly.",
       "not_found": "The service answers but cannot find the resource. Check the base URL and the form id.",

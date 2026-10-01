@@ -9,6 +9,7 @@ import {
   type HoldedDocumentRecipients,
 } from "@/lib/holded/client";
 import { logger } from "@/lib/logger";
+import { operationFailureCode } from "@/modules/booking/services/operations";
 
 const recipientSchema = z.email().max(320);
 
@@ -178,9 +179,14 @@ export async function deliverPreparedDocument(
   }
   if (delivery.status === "UNKNOWN") return "unknown";
   if (delivery.status === "IN_FLIGHT") {
-    await db.documentDelivery.updateMany({
-      where: { id: delivery.id, status: "IN_FLIGHT" },
-      data: { status: "UNKNOWN", outcomeUnknownAt: new Date() },
+    await db.$transaction(async (transaction) => {
+      const changed = await transaction.documentDelivery.updateMany({
+        where: { id: delivery.id, status: "IN_FLIGHT" },
+        data: { status: "UNKNOWN", outcomeUnknownAt: new Date() },
+      });
+      if (changed.count === 1) await transaction.bookingOperationEvent.create({
+        data: { bookingRequestId: document.bookingRequestId, type: "DELIVERY_UNKNOWN", failureCode: "interrupted" },
+      });
     });
     logger.warn(
       { event: "booking_document_delivery_unknown", holdedDocumentId },
@@ -189,14 +195,20 @@ export async function deliverPreparedDocument(
     return "unknown";
   }
 
-  const claimed = await db.documentDelivery.updateMany({
-    where: { id: delivery.id, status: delivery.status },
-    data: {
-      status: "IN_FLIGHT",
-      attemptedAt: new Date(),
-      lastFailureCode: null,
-      outcomeUnknownAt: null,
-    },
+  const claimed = await db.$transaction(async (transaction) => {
+    const changed = await transaction.documentDelivery.updateMany({
+      where: { id: delivery.id, status: delivery.status },
+      data: {
+        status: "IN_FLIGHT",
+        attemptedAt: new Date(),
+        lastFailureCode: null,
+        outcomeUnknownAt: null,
+      },
+    });
+    if (changed.count === 1) await transaction.bookingOperationEvent.create({
+      data: { bookingRequestId: document.bookingRequestId, type: "DELIVERY_STARTED" },
+    });
+    return changed;
   });
   if (claimed.count !== 1) {
     return deliverPreparedDocument(
@@ -207,12 +219,11 @@ export async function deliverPreparedDocument(
     );
   }
 
-  const recipients = {
-    emails: [delivery.toEmail],
-    cc: readCcEmails(delivery.ccEmails),
-  };
-
   try {
+    const recipients = {
+      emails: [delivery.toEmail],
+      cc: readCcEmails(delivery.ccEmails),
+    };
     if (document.type === "ESTIMATE") {
       await client.sendEstimate(
         document.holdedId,
@@ -236,13 +247,22 @@ export async function deliverPreparedDocument(
     const failureCode =
       error instanceof HoldedDeliveryError ? error.code : "unexpected";
 
-    await db.documentDelivery.updateMany({
-      where: { id: delivery.id, status: "IN_FLIGHT" },
-      data: {
-        status,
-        lastFailureCode: failureCode,
-        outcomeUnknownAt: definitive ? null : new Date(),
-      },
+    await db.$transaction(async (transaction) => {
+      await transaction.documentDelivery.updateMany({
+        where: { id: delivery.id, status: "IN_FLIGHT" },
+        data: {
+          status,
+          lastFailureCode: failureCode,
+          outcomeUnknownAt: definitive ? null : new Date(),
+        },
+      });
+      await transaction.bookingOperationEvent.create({
+        data: {
+          bookingRequestId: document.bookingRequestId,
+          type: definitive ? "DELIVERY_FAILED" : "DELIVERY_UNKNOWN",
+          failureCode: operationFailureCode(error),
+        },
+      });
     });
     logger.warn(
       {
@@ -271,6 +291,9 @@ export async function deliverPreparedDocument(
     db.holdedDocument.update({
       where: { id: holdedDocumentId },
       data: { sentAt: acceptedAt },
+    }),
+    db.bookingOperationEvent.create({
+      data: { bookingRequestId: document.bookingRequestId, type: "DELIVERY_ACCEPTED" },
     }),
   ]);
   logger.info(

@@ -2,7 +2,9 @@
 
 import { useActionState } from "react";
 import { useTranslations } from "next-intl";
+import { LoaderCircle, Send } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import type { DecisionActionState } from "@/modules/booking/actions/decisions";
 
 type DecisionAction = (
@@ -81,6 +83,28 @@ export function DecisionForm({
       <button type="submit" disabled={pending} className={className}>
         {label}
       </button>
+    </form>
+  );
+}
+
+export function QuoteResendForm({ action, bookingRequestId, disabled = false }: {
+  action: DecisionAction;
+  bookingRequestId: string;
+  disabled?: boolean;
+}) {
+  const t = useTranslations("Bookings.actions");
+  const [state, formAction, pending] = useActionState(action, IDLE);
+
+  return (
+    <form action={formAction} className="flex flex-col items-start gap-2">
+      <input type="hidden" name="bookingRequestId" value={bookingRequestId} />
+      <Button type="submit" variant="outline" disabled={disabled || pending || state.status === "done"}>
+        {pending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
+        {t("resendQuote")}
+      </Button>
+      {pending ? <p role="status" className="text-sm text-muted-foreground">{t("queuingQuote")}</p> : null}
+      {state.status === "done" ? <p role="status" className="text-sm text-muted-foreground">{t("quoteQueued")}</p> : null}
+      <ErrorMessage state={state} />
     </form>
   );
 }
