@@ -14,6 +14,7 @@ import {
   prepareDocumentDelivery,
 } from "@/modules/booking/services/document-delivery";
 import { enqueueJob, type OutboxJob } from "@/modules/booking/services/outbox";
+import { operationFailureCode, recordBookingOperation } from "@/modules/booking/services/operations";
 import { paymentDeadlineFrom } from "@/modules/booking/services/expiry";
 import {
   quoteStay,
@@ -53,11 +54,82 @@ export function quoteJobKey(bookingRequestId: string): string {
 }
 
 export async function enqueueQuote(bookingRequestId: string): Promise<boolean> {
-  return enqueueJob({
+  const queued = await enqueueJob({
     kind: QUOTE_JOB_KIND,
     idempotencyKey: quoteJobKey(bookingRequestId),
     payload: { bookingRequestId },
   });
+  if (queued) await recordBookingOperation(bookingRequestId, "QUOTE_REQUESTED");
+  return queued;
+}
+
+export class QuoteResendError extends Error {
+  constructor(readonly code: "busy" | "wrong_state" | "delivery_unknown") {
+    super(code);
+    this.name = "QuoteResendError";
+  }
+}
+
+export async function requestQuoteResend(bookingRequestId: string, actorUserId: string): Promise<void> {
+  await db.$transaction(async (transaction) => {
+    await transaction.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${bookingRequestId} FOR UPDATE`;
+    const booking = await transaction.bookingRequest.findUnique({
+      where: { id: bookingRequestId },
+      include: { documents: { where: { type: "ESTIMATE" }, include: { delivery: true } } },
+    });
+    const estimate = booking?.documents[0];
+    if (!booking || !["AWAITING_PAYMENT", "CONFIRMED", "COMPLETED"].includes(booking.state) ||
+      (!estimate && booking.state !== "AWAITING_PAYMENT")) {
+      throw new QuoteResendError("wrong_state");
+    }
+    if (estimate?.delivery && ["UNKNOWN", "IN_FLIGHT"].includes(estimate.delivery.status)) {
+      throw new QuoteResendError("delivery_unknown");
+    }
+    const key = quoteJobKey(bookingRequestId);
+    const job = await transaction.integrationJob.findUnique({ where: { idempotencyKey: key } });
+    const recentRequest = await transaction.bookingOperationEvent.findFirst({
+      where: { bookingRequestId, type: "QUOTE_REQUESTED", createdAt: { gte: new Date(Date.now() - 60_000) } },
+      select: { id: true },
+    });
+    if ((job && ["PENDING", "CLAIMED"].includes(job.status)) || recentRequest) {
+      throw new QuoteResendError("busy");
+    }
+    const reset = {
+      payload: {
+        bookingRequestId,
+        resend: true,
+        resumeCreation: !estimate || Boolean(booking.state === "AWAITING_PAYMENT" &&
+          (booking.advanceCents === null || booking.depositCents === null) &&
+          !estimate.sentAt && !estimate.delivery),
+      },
+      status: "PENDING" as const,
+      attempts: 0,
+      claimedAt: null,
+      lastError: null,
+      runAfter: new Date(),
+    };
+    if (job) {
+      const changed = await transaction.integrationJob.updateMany({
+        where: { id: job.id, status: job.status }, data: reset,
+      });
+      if (changed.count !== 1) throw new QuoteResendError("busy");
+    } else {
+      await transaction.integrationJob.create({
+        data: { ...reset, kind: QUOTE_JOB_KIND, idempotencyKey: key },
+      });
+    }
+    if (estimate) {
+      await transaction.holdedDocument.update({ where: { id: estimate.id }, data: { sentAt: null } });
+      await transaction.documentDelivery.updateMany({
+        where: { holdedDocumentId: estimate.id, status: { in: ["ACCEPTED", "FAILED", "PREPARED"] } },
+        data: { status: "PREPARED", attemptedAt: null, acceptedAt: null, lastFailureCode: null },
+      });
+    }
+    await transaction.bookingOperationEvent.create({
+      data: { bookingRequestId, actorUserId, type: "QUOTE_REQUESTED" },
+    });
+  });
+  logger.info({ event: "booking_quote_resend_requested", bookingRequestId, actorUserId }, "quote resend queued");
 }
 
 export class QuotingError extends Error {
@@ -119,22 +191,24 @@ async function resolveSeriesId(
  * calls with no compensation: a failure at the last step left an invoice issued
  * against an estimate that still showed the full amount, and nobody was told.
  */
-export async function runQuoteJob(
+async function generateQuote(
   job: OutboxJob,
   overrides: { client?: HoldedClient; config?: HoldedConfig } = {},
 ): Promise<void> {
-  const payload = job.payload as { bookingRequestId?: unknown };
+  const payload = job.payload as { bookingRequestId?: unknown; resend?: unknown; resumeCreation?: unknown };
   const bookingRequestId = String(payload.bookingRequestId ?? "");
 
   const booking = await db.bookingRequest.findUnique({
     where: { id: bookingRequestId },
-    include: { customer: true, documents: true },
+    include: { customer: true, documents: { include: { delivery: { select: { status: true } } } } },
   });
 
   if (!booking) {
     throw new QuotingError("unknown_booking", "Booking request not found");
   }
-  if (booking.state !== "AWAITING_PAYMENT") {
+  const linkedEstimate = booking.documents.find((document) => document.type === "ESTIMATE");
+  if (booking.state !== "AWAITING_PAYMENT" &&
+    !(payload.resend === true && linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state))) {
     throw new QuotingError(
       "wrong_state",
       `Booking is in ${booking.state}; quoting expects AWAITING_PAYMENT`,
@@ -146,6 +220,24 @@ export async function runQuoteJob(
     : await resolveIntegration("HOLDED");
   const config = resolved.config;
   const client = overrides.client ?? createHoldedClient(resolved.secret);
+
+  const quoteReady = linkedEstimate && (
+    payload.resumeCreation !== true || booking.state !== "AWAITING_PAYMENT" ||
+    (booking.advanceCents !== null && booking.depositCents !== null) ||
+    linkedEstimate.sentAt !== null || linkedEstimate.delivery !== null
+  );
+  if (payload.resend === true && linkedEstimate && quoteReady) {
+    const estimate = await client.getEstimate(linkedEstimate.holdedId);
+    if (!estimate || estimate.contactId !== booking.customer.holdedContactId) {
+      throw new QuotingError("incomplete_configuration", "Linked estimate could not be verified");
+    }
+    await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
+    const delivery = await prepareDocumentDelivery(linkedEstimate.id, client);
+    if (delivery) {
+      await deliverPreparedDocument(linkedEstimate.id, client, config.mailTemplateId, bookingManagementSubject(config.language));
+    }
+    return;
+  }
 
   // The settings screen allows saving the API key before the identifiers are
   // chosen, so completeness is enforced here rather than blocking that step.
@@ -291,6 +383,9 @@ export async function runQuoteJob(
       },
     });
     estimateDocumentId = document.id;
+    await recordBookingOperation(booking.id, "ESTIMATE_CREATED");
+  } else {
+    await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
   }
 
   const paymentDueAt = booking.paymentDueAt ?? paymentDeadlineFrom(new Date());
@@ -322,6 +417,7 @@ export async function runQuoteJob(
   // Step 5 — approve, which takes the estimate out of draft, then send. The
   // customer must receive the final document, not the working copy.
   await client.approveEstimate(estimateId);
+  await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
 
   if (!estimateDocumentId) {
     throw new QuotingError("unknown_booking", "Estimate document was not persisted");
@@ -356,4 +452,21 @@ export async function runQuoteJob(
     },
     "booking quote issued in Holded",
   );
+}
+
+export async function runQuoteJob(
+  job: OutboxJob,
+  overrides: { client?: HoldedClient; config?: HoldedConfig } = {},
+): Promise<void> {
+  try {
+    await generateQuote(job, overrides);
+  } catch (error) {
+    const bookingRequestId = (job.payload as { bookingRequestId?: unknown }).bookingRequestId;
+    const failureCode = operationFailureCode(error);
+    if (typeof bookingRequestId === "string" && !(error instanceof QuotingError && error.code === "unknown_booking")) {
+      await recordBookingOperation(bookingRequestId, "QUOTE_FAILED", failureCode);
+    }
+    logger.warn({ event: "booking_quote_failed", jobId: job.id, failureCode }, "quote processing failed");
+    throw error;
+  }
 }

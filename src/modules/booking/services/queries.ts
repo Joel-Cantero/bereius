@@ -107,6 +107,10 @@ export async function getBookingDetail(bookingRequestId: string) {
         select: { status: true },
       },
       payments: { orderBy: { receivedAt: "asc" } },
+      operationEvents: {
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        include: { actor: { select: { name: true } } },
+      },
       auditEvents: {
         orderBy: { createdAt: "asc" },
         include: { actor: { select: { name: true, email: true } } },

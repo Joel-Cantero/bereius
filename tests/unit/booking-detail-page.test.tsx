@@ -1,8 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render as renderTree, screen } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import enMessages from "@/messages/en.json";
+
+function render(tree: React.ReactNode) {
+  return renderTree(
+    <NextIntlClientProvider locale="en" messages={enMessages}>{tree}</NextIntlClientProvider>,
+  );
+}
 
 vi.mock("server-only", () => ({}));
 
@@ -70,6 +76,7 @@ vi.mock("@/modules/booking/actions/decisions", () => ({
   recordPaymentAction: vi.fn(),
   rejectBookingAction: vi.fn(),
 }));
+vi.mock("@/modules/booking/actions/quotes", () => ({ resendQuoteAction: vi.fn() }));
 
 import BookingDetailPage from "@/app/[locale]/(console)/bookings/[id]/page";
 
@@ -106,6 +113,7 @@ function bookingWithDelivery(status: "ACCEPTED" | "UNKNOWN") {
     documentIssuances: [],
     payments: [],
     auditEvents: [],
+    operationEvents: [],
   };
 }
 
@@ -171,6 +179,27 @@ describe("booking detail estimate delivery warning", () => {
     );
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: enMessages.Bookings.actions.resendQuote })).toBeEnabled();
+  });
+
+  it("disables resend for an unknown estimate delivery", async () => {
+    mocks.getBookingDetail.mockResolvedValue(bookingWithDelivery("UNKNOWN"));
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.getByRole("button", { name: enMessages.Bookings.actions.resendQuote })).toBeDisabled();
+  });
+
+  it("shows durable document events separately from lifecycle history", async () => {
+    mocks.getBookingDetail.mockResolvedValue({
+      ...bookingWithDelivery("ACCEPTED"),
+      operationEvents: [
+        { id: "event-1", type: "ESTIMATE_CREATED", createdAt: new Date("2026-10-01T09:00:00Z"), actor: null, failureCode: null },
+        { id: "event-2", type: "DELIVERY_ACCEPTED", createdAt: new Date("2026-10-01T09:01:00Z"), actor: null, failureCode: null },
+      ],
+    });
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.getByRole("region", { name: "Logs" })).toHaveTextContent(enMessages.Bookings.operations.events.ESTIMATE_CREATED);
+    expect(screen.getByRole("region", { name: "Logs" })).toHaveTextContent(enMessages.Bookings.operations.events.DELIVERY_ACCEPTED);
+    expect(screen.getByRole("heading", { name: enMessages.Bookings.detail.history })).toBeVisible();
   });
 
   it.each([

@@ -895,6 +895,22 @@
     }
   },
   "Bookings": {
+    "operations": {
+      "title": "Logs",
+      "empty": "Encara no hi ha operacions registrades.",
+      "failure": "Motiu: {code}",
+      "events": {
+        "QUOTE_REQUESTED": "Creació o reenvio del pressupost en cua",
+        "ESTIMATE_CREATED": "Pressupost creat i vinculat a Holded",
+        "ESTIMATE_REUSED": "Pressupost vinculat reutilitzat, sense crear-ne un altre",
+        "ESTIMATE_APPROVED": "Pressupost aprovat a Holded",
+        "DELIVERY_STARTED": "Enviament del document iniciat",
+        "DELIVERY_ACCEPTED": "Enviament del document acceptat per Holded",
+        "DELIVERY_FAILED": "Enviament del document rebutjat; no s'ha enviat",
+        "DELIVERY_UNKNOWN": "Resultat de l'enviament desconegut; reenvio bloquejat",
+        "QUOTE_FAILED": "Processament del pressupost interromput per un error"
+      }
+    },
     "queue": {
       "title": "Sol·licituds de reserva",
       "description": "Revisa i decideix sobre les sol·licituds de reserva.",
@@ -959,6 +975,9 @@
       "reasonLabel": "Motiu",
       "reasonHint": "Queda a l'historial i s'envia al sol·licitant.",
       "recordPayment": "Registra el pagament",
+      "resendQuote": "Enviar de nou el pressupost",
+      "queuingQuote": "Posant el pressupost en cua...",
+      "quoteQueued": "Petició registrada. El pressupost està pendent de processament.",
       "amountLabel": "Import rebut (EUR)",
       "receivedAtLabel": "Rebut el",
       "referenceLabel": "Concepte de la transferència",
@@ -1053,6 +1072,8 @@
       "state_changed": "Una altra persona ha canviat aquesta reserva. Recarrega per veure l'estat actual.",
       "reason_required": "Cal un motiu.",
       "amount_mismatch": "L'import no coincideix al cèntim amb el que es deu. Revisa-ho a mà.",
+      "quote_busy": "Ja hi ha una petició en curs o molt recent. Recarrega abans de tornar-ho a provar.",
+      "quote_delivery_unknown": "No es pot reenviar perquè l'enviament anterior està en curs o té un resultat desconegut. Comprova-ho a Holded.",
       "authentication": "El servei ha rebutjat la credencial. Comprova que sigui correcta i que tingui permisos.",
       "connection": "No s'ha pogut contactar amb el servei. Torna-ho a provar més tard.",
       "not_found": "El servei respon però no troba el recurs. Revisa la URL base i l'identificador del formulari.",

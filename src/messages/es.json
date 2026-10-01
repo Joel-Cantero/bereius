@@ -895,6 +895,22 @@
     }
   },
   "Bookings": {
+    "operations": {
+      "title": "Logs",
+      "empty": "Todavía no hay operaciones registradas.",
+      "failure": "Motivo: {code}",
+      "events": {
+        "QUOTE_REQUESTED": "Creación o reenvío del presupuesto en cola",
+        "ESTIMATE_CREATED": "Presupuesto creado y vinculado en Holded",
+        "ESTIMATE_REUSED": "Presupuesto vinculado reutilizado, sin crear otro",
+        "ESTIMATE_APPROVED": "Presupuesto aprobado en Holded",
+        "DELIVERY_STARTED": "Envío del documento iniciado",
+        "DELIVERY_ACCEPTED": "Envío del documento aceptado por Holded",
+        "DELIVERY_FAILED": "Envío del documento rechazado; no se ha enviado",
+        "DELIVERY_UNKNOWN": "Resultado del envío desconocido; reenvío bloqueado",
+        "QUOTE_FAILED": "Procesamiento del presupuesto interrumpido por un error"
+      }
+    },
     "queue": {
       "title": "Solicitudes de reserva",
       "description": "Revisa y decide sobre las solicitudes de reserva.",
@@ -959,6 +975,9 @@
       "reasonLabel": "Motivo",
       "reasonHint": "Queda en el historial y se envía al solicitante.",
       "recordPayment": "Registrar pago",
+      "resendQuote": "Enviar de nuevo el presupuesto",
+      "queuingQuote": "Poniendo el presupuesto en cola...",
+      "quoteQueued": "Petición registrada. El presupuesto está pendiente de procesamiento.",
       "amountLabel": "Importe recibido (EUR)",
       "receivedAtLabel": "Recibido el",
       "referenceLabel": "Concepto de la transferencia",
@@ -1053,6 +1072,8 @@
       "state_changed": "Otra persona ha cambiado esta reserva. Recarga para ver el estado actual.",
       "reason_required": "Hace falta un motivo.",
       "amount_mismatch": "El importe no coincide al céntimo con lo debido. Revísalo a mano.",
+      "quote_busy": "Ya hay una petición en curso o muy reciente. Recarga antes de volver a intentarlo.",
+      "quote_delivery_unknown": "No se puede reenviar porque el envío anterior está en curso o tiene un resultado desconocido. Compruébalo en Holded.",
       "authentication": "El servicio ha rechazado la credencial. Comprueba que sea correcta y que tenga permisos.",
       "connection": "No se ha podido contactar con el servicio. Inténtalo de nuevo más tarde.",
       "not_found": "El servicio responde pero no encuentra el recurso. Revisa la URL base y el identificador del formulario.",

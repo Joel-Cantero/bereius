@@ -43,6 +43,7 @@ model User {
   bookingDecisions           BookingRequest[]             @relation("BookingDecisions")
   paymentsRecorded           Payment[]                    @relation("PaymentsRecorded")
   bookingAuditEvents         BookingAuditEvent[]          @relation("BookingAuditActor")
+  bookingOperationEvents     BookingOperationEvent[]
   integrationSettings        IntegrationSettings[]        @relation("IntegrationSettingsUpdatedBy")
   treasuryAccountsConfigured HoldedTreasuryAccount[]      @relation("TreasuryAccountsConfigured")
   bankSyncRunsRequested      BankSyncRun[]                @relation("BankSyncRunsRequested")
@@ -286,6 +287,7 @@ model BookingRequest {
   documentIssuances           DocumentIssuance[]
   payments                    Payment[]
   auditEvents                 BookingAuditEvent[]
+  operationEvents             BookingOperationEvent[]
   bankReconciliationProposals BankReconciliationProposal[]
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
@@ -382,6 +384,32 @@ model BookingAuditEvent {
 
   bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
   actor          User?          @relation("BookingAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([bookingRequestId, createdAt])
+}
+
+enum BookingOperationEventType {
+  QUOTE_REQUESTED
+  ESTIMATE_CREATED
+  ESTIMATE_REUSED
+  ESTIMATE_APPROVED
+  DELIVERY_STARTED
+  DELIVERY_ACCEPTED
+  DELIVERY_FAILED
+  DELIVERY_UNKNOWN
+  QUOTE_FAILED
+}
+
+model BookingOperationEvent {
+  id               String                    @id @default(cuid())
+  bookingRequestId String
+  actorUserId      String?
+  type             BookingOperationEventType
+  failureCode      String?
+  createdAt        DateTime                  @default(now())
+
+  bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+  actor          User?          @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
 
   @@index([bookingRequestId, createdAt])
 }

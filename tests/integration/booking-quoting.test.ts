@@ -7,10 +7,10 @@ vi.mock("server-only", () => ({}));
 const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === "true";
 
 import { db } from "@/lib/db";
-import type { HoldedClient } from "@/lib/holded/client";
+import { HoldedDeliveryError, type HoldedClient } from "@/lib/holded/client";
 import type { HoldedConfig } from "@/modules/booking/services/settings";
 import type { OutboxJob } from "@/modules/booking/services/outbox";
-import { runQuoteJob } from "@/modules/booking/services/quoting";
+import { quoteJobKey, requestQuoteResend, runQuoteJob } from "@/modules/booking/services/quoting";
 
 const config: HoldedConfig = {
   advanceServiceId: "svc-advance",
@@ -110,6 +110,31 @@ function stubClient(options: StubOptions = {}) {
 
 describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
   const customerIds: string[] = [];
+  const actorIds: string[] = [];
+
+  async function actor() {
+    const email = `quote-operator-${crypto.randomUUID()}@example.test`;
+    const user = await db.user.create({ data: { email, normalizedEmail: email, name: "Operator" } });
+    actorIds.push(user.id);
+    return user.id;
+  }
+
+  async function issuedBooking() {
+    const booking = await approvedBooking();
+    const { client } = stubClient();
+    await runQuoteJob(job(booking.id), { client, config });
+    const document = await db.holdedDocument.findFirstOrThrow({ where: { bookingRequestId: booking.id } });
+    vi.mocked(client.getEstimate).mockResolvedValue({
+      id: document.holdedId, number: document.documentNumber, description: null, date: null,
+      totalCents: document.totalCents, status: "approved", contactId: "contact-1", contactName: null,
+    });
+    vi.clearAllMocks();
+    return { booking, document, client };
+  }
+
+  async function queuedJob(bookingRequestId: string) {
+    return db.integrationJob.findUniqueOrThrow({ where: { idempotencyKey: quoteJobKey(bookingRequestId) } });
+  }
 
   async function approvedBooking() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -147,13 +172,169 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
   }
 
   afterEach(async () => {
+    const bookings = await db.bookingRequest.findMany({ where: { customerId: { in: customerIds } }, select: { id: true } });
+    await db.integrationJob.deleteMany({ where: { idempotencyKey: { in: bookings.map(({ id }) => quoteJobKey(id)) } } });
     await db.bookingRequest.deleteMany({ where: { customerId: { in: customerIds } } });
     await db.customer.deleteMany({ where: { id: { in: customerIds } } });
+    await db.user.deleteMany({ where: { id: { in: actorIds } } });
     customerIds.length = 0;
+    actorIds.length = 0;
   });
 
   afterAll(async () => {
     await db.$disconnect();
+  });
+
+  it("recovers a dead creation job and records every successful document step", async () => {
+    const booking = await approvedBooking();
+    const actorUserId = await actor();
+    const old = await db.integrationJob.create({ data: {
+      kind: "booking.quote", idempotencyKey: quoteJobKey(booking.id), payload: { bookingRequestId: booking.id },
+      status: "DEAD", attempts: 6, lastError: "old failure",
+    } });
+    await requestQuoteResend(booking.id, actorUserId);
+    const queued = await queuedJob(booking.id);
+    expect(queued).toMatchObject({ id: old.id, status: "PENDING", attempts: 0, lastError: null });
+    const { client } = stubClient();
+    await runQuoteJob(queued, { client, config });
+    expect(client.createEstimate).toHaveBeenCalledOnce();
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+    const events = await db.bookingOperationEvent.findMany({ where: { bookingRequestId: booking.id }, orderBy: { createdAt: "asc" } });
+    expect(events.map((event) => event.type)).toEqual([
+      "QUOTE_REQUESTED", "ESTIMATE_CREATED", "ESTIMATE_APPROVED", "DELIVERY_STARTED", "DELIVERY_ACCEPTED",
+    ]);
+    expect(events[0]?.actorUserId).toBe(actorUserId);
+  });
+
+  it.each(["AWAITING_PAYMENT", "CONFIRMED", "COMPLETED"] as const)(
+    "resends a linked estimate in %s without repricing, changing dates, or issuing another document",
+    async (state) => {
+      const { booking, document, client } = await issuedBooking();
+      await db.bookingRequest.update({ where: { id: booking.id }, data: { state } });
+      const before = await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } });
+      const deliveryBefore = await db.documentDelivery.findUniqueOrThrow({ where: { holdedDocumentId: document.id } });
+      await requestQuoteResend(booking.id, await actor());
+      const queued = await queuedJob(booking.id);
+      await runQuoteJob(queued, { client, config });
+      await runQuoteJob(queued, { client, config });
+      expect(client.sendEstimate).toHaveBeenCalledOnce();
+      expect(client.createEstimate).not.toHaveBeenCalled();
+      expect(client.createInvoice).not.toHaveBeenCalled();
+      expect(client.readService).not.toHaveBeenCalled();
+      expect(client.replaceEstimateLines).not.toHaveBeenCalled();
+      expect(client.approveEstimate).not.toHaveBeenCalled();
+      expect(client.listDelegateEmails).not.toHaveBeenCalled();
+      expect(await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } })).toEqual(before);
+      const delivery = await db.documentDelivery.findUniqueOrThrow({ where: { holdedDocumentId: document.id } });
+      expect(delivery).toMatchObject({ status: "ACCEPTED", toEmail: deliveryBefore.toEmail, ccEmails: deliveryBefore.ccEmails });
+      expect(await db.holdedDocument.count({ where: { bookingRequestId: booking.id } })).toBe(1);
+    },
+  );
+
+  it("finishes a partially generated linked estimate before sending it", async () => {
+    const booking = await approvedBooking();
+    const failed = stubClient({ failOn: "approveEstimate" });
+    await expect(runQuoteJob(job(booking.id), { client: failed.client, config })).rejects.toThrow();
+    await requestQuoteResend(booking.id, await actor());
+    const { client, calls } = stubClient();
+    await runQuoteJob(await queuedJob(booking.id), { client, config });
+    expect(client.createEstimate).not.toHaveBeenCalled();
+    expect(client.approveEstimate).toHaveBeenCalledOnce();
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+    expect(calls.indexOf("approveEstimate")).toBeLessThan(calls.indexOf("sendEstimate"));
+  });
+
+  it("does not reprice an already delivered estimate even if local amounts are missing", async () => {
+    const { booking, client } = await issuedBooking();
+    await db.bookingRequest.update({ where: { id: booking.id }, data: { advanceCents: null, depositCents: null } });
+    await requestQuoteResend(booking.id, await actor());
+    await runQuoteJob(await queuedJob(booking.id), { client, config });
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+    expect(client.readService).not.toHaveBeenCalled();
+    expect(client.replaceEstimateLines).not.toHaveBeenCalled();
+    expect(client.createEstimate).not.toHaveBeenCalled();
+  });
+
+  it("resumes a newly created draft after a manual recovery fails before approval", async () => {
+    const booking = await approvedBooking();
+    await requestQuoteResend(booking.id, await actor());
+    const queued = await queuedJob(booking.id);
+    const failing = stubClient({ failOn: "replaceEstimateLines" });
+    await expect(runQuoteJob(queued, { client: failing.client, config })).rejects.toThrow();
+    expect(failing.client.sendEstimate).not.toHaveBeenCalled();
+    const { client, calls } = stubClient();
+    await runQuoteJob(queued, { client, config });
+    expect(client.createEstimate).not.toHaveBeenCalled();
+    expect(client.approveEstimate).toHaveBeenCalledOnce();
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+    expect(calls.indexOf("approveEstimate")).toBeLessThan(calls.indexOf("sendEstimate"));
+  });
+
+  it("serializes concurrent requests even when no quoting job exists yet", async () => {
+    const booking = await approvedBooking();
+    const actorUserId = await actor();
+    const results = await Promise.allSettled([
+      requestQuoteResend(booking.id, actorUserId), requestQuoteResend(booking.id, actorUserId),
+    ]);
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({ reason: { code: "busy" } });
+    expect(await db.integrationJob.count({ where: { idempotencyKey: quoteJobKey(booking.id) } })).toBe(1);
+    expect(await db.bookingOperationEvent.count({ where: { bookingRequestId: booking.id, type: "QUOTE_REQUESTED" } })).toBe(1);
+  });
+
+  it.each(["PENDING", "CLAIMED"] as const)("does not reset a %s job", async (status) => {
+    const booking = await approvedBooking();
+    const old = await db.integrationJob.create({ data: {
+      kind: "booking.quote", idempotencyKey: quoteJobKey(booking.id), payload: { bookingRequestId: booking.id },
+      status, attempts: 3, lastError: "previous failure",
+    } });
+    await expect(requestQuoteResend(booking.id, await actor())).rejects.toMatchObject({ code: "busy" });
+    expect(await queuedJob(booking.id)).toEqual(old);
+  });
+
+  it.each(["UNKNOWN", "IN_FLIGHT"] as const)("does not reset a %s delivery", async (status) => {
+    const { booking, document } = await issuedBooking();
+    await db.holdedDocument.update({ where: { id: document.id }, data: { sentAt: null } });
+    const before = await db.documentDelivery.update({ where: { holdedDocumentId: document.id }, data: { status } });
+    await expect(requestQuoteResend(booking.id, await actor())).rejects.toMatchObject({ code: "delivery_unknown" });
+    expect(await db.documentDelivery.findUnique({ where: { id: before.id } })).toEqual(before);
+    expect(await db.integrationJob.count({ where: { idempotencyKey: quoteJobKey(booking.id) } })).toBe(0);
+  });
+
+  it("blocks another request inside the cooldown even after a fast successful delivery", async () => {
+    const { booking, client } = await issuedBooking();
+    const actorUserId = await actor();
+    await requestQuoteResend(booking.id, actorUserId);
+    const queued = await queuedJob(booking.id);
+    await runQuoteJob(queued, { client, config });
+    await db.integrationJob.update({ where: { id: queued.id }, data: { status: "SUCCEEDED" } });
+    await expect(requestQuoteResend(booking.id, actorUserId)).rejects.toMatchObject({ code: "busy" });
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+  });
+
+  it.each(["missing", "different_contact"])("does not recreate or send a %s remote estimate", async (mode) => {
+    const { booking, client } = await issuedBooking();
+    const estimate = await client.getEstimate("fixture");
+    vi.mocked(client.getEstimate).mockResolvedValue(mode === "missing" ? null : { ...estimate!, contactId: "other-contact" });
+    await requestQuoteResend(booking.id, await actor());
+    await expect(runQuoteJob(await queuedJob(booking.id), { client, config })).rejects.toMatchObject({ code: "incomplete_configuration" });
+    expect(client.createEstimate).not.toHaveBeenCalled();
+    expect(client.sendEstimate).not.toHaveBeenCalled();
+    expect(await db.bookingOperationEvent.findFirst({ where: { bookingRequestId: booking.id, type: "QUOTE_FAILED" } })).toMatchObject({ failureCode: "incomplete_configuration" });
+  });
+
+  it.each(["definitive_failure", "unknown"] as const)("logs a %s resend failure without provider text", async (outcome) => {
+    const { booking, document, client } = await issuedBooking();
+    vi.mocked(client.sendEstimate).mockRejectedValue(new HoldedDeliveryError("invalid_request", outcome, "private-provider-response@example.test"));
+    await requestQuoteResend(booking.id, await actor());
+    await expect(runQuoteJob(await queuedJob(booking.id), { client, config })).rejects.toThrow();
+    const events = await db.bookingOperationEvent.findMany({ where: { bookingRequestId: booking.id } });
+    expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: outcome === "unknown" ? "DELIVERY_UNKNOWN" : "DELIVERY_FAILED", failureCode: "invalid_request" }),
+      expect.objectContaining({ type: "QUOTE_FAILED", failureCode: "invalid_request" }),
+    ]));
+    expect(JSON.stringify(events)).not.toContain("private-provider-response");
+    expect(await db.documentDelivery.findUnique({ where: { holdedDocumentId: document.id } })).toMatchObject({ status: outcome === "unknown" ? "UNKNOWN" : "FAILED" });
   });
 
   it("issues and sends the estimate without creating a reserve invoice", async () => {
