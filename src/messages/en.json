@@ -896,9 +896,27 @@
   },
   "Bookings": {
     "operations": {
-      "title": "Logs",
-      "empty": "No operations have been recorded yet.",
-      "failure": "Reason: {code}",
+      "empty": "No history has been recorded yet.",
+      "reasons": {
+        "unauthorized": "Holded rejected the integration credentials.",
+        "not_found": "The document or contact could not be found in Holded.",
+        "rate_limited": "Holded's request limit was reached. Try again later.",
+        "invalid_request": "Holded rejected the document or delivery details.",
+        "unavailable": "Holded could not be reached or returned a service error.",
+        "malformed_response": "Holded's response could not be safely verified.",
+        "incomplete_configuration": "The Holded services, accounting accounts, or numbering series are incomplete.",
+        "no_service": "No Holded service is configured for this stay.",
+        "wrong_state": "This booking's current state does not allow the operation.",
+        "not_configured": "The Holded integration has not been configured.",
+        "invalid_config": "The Holded integration configuration is invalid.",
+        "missing_fiscal_email": "The customer has no valid fiscal email address.",
+        "invalid_delegate_email": "A delegate email address is invalid.",
+        "unlinked_customer": "The customer is not linked to a Holded contact.",
+        "invalid_delivery": "The document delivery details are invalid.",
+        "delivery_unknown": "Delivery could not be confirmed. Resend is blocked to prevent duplicate emails.",
+        "interrupted": "Delivery was interrupted before confirmation. Holded may have sent the email; do not resend without verification.",
+        "unexpected": "An unexpected error occurred. Check the integration before retrying."
+      },
       "events": {
         "QUOTE_REQUESTED": "Quote creation or resend queued",
         "ESTIMATE_CREATED": "Estimate created and linked in Holded",

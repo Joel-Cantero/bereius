@@ -1,12 +1,16 @@
-import { render as renderTree, screen } from "@testing-library/react";
+import { render as renderTree, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import enMessages from "@/messages/en.json";
+import esMessages from "@/messages/es.json";
+import caMessages from "@/messages/ca.json";
+import { BookingHistory } from "@/modules/booking/components/history";
 
-function render(tree: React.ReactNode) {
+function render(tree: React.ReactNode, locale = "en", messages = enMessages) {
   return renderTree(
-    <NextIntlClientProvider locale="en" messages={enMessages}>{tree}</NextIntlClientProvider>,
+    <NextIntlClientProvider locale={locale} messages={messages}>{tree}</NextIntlClientProvider>,
   );
 }
 
@@ -141,6 +145,55 @@ function bookingWithReserveInvoice(
   };
 }
 
+describe("unified booking history", () => {
+  const timestamp = "2026-10-01T12:05:00.000Z";
+  function operation(id: string, type: string, createdAt = timestamp, failureCode: string | null = null) {
+    return { id, type, createdAt, timeLabel: createdAt, actorLabel: null, failureCode };
+  }
+
+  it("merges lifecycle and operations newest-first without losing retries or pending attempts", () => {
+    render(<BookingHistory operations={[
+      operation("start", "DELIVERY_STARTED"), operation("accepted", "DELIVERY_ACCEPTED"),
+      operation("start-2", "DELIVERY_STARTED", "2026-10-01T12:07:00.000Z"),
+      operation("failed", "DELIVERY_FAILED", "2026-10-01T12:08:00.000Z", "invalid_request"),
+      operation("pending", "DELIVERY_STARTED", "2026-10-01T12:09:00.000Z"),
+    ]} lifecycle={[{ id: "state", toState: "CONFIRMED", createdAt: "2026-10-01T12:06:00.000Z", timeLabel: "12:06", actorLabel: "Operator", reason: "Bank payment" }]} />);
+    const history = within(screen.getByRole("region", { name: enMessages.Bookings.detail.history }));
+    const items = history.getAllByRole("listitem");
+    expect(items).toHaveLength(4);
+    expect(items[0]).toHaveTextContent(enMessages.Bookings.operations.events.DELIVERY_STARTED);
+    expect(items[1]).toHaveTextContent(enMessages.Bookings.operations.events.DELIVERY_FAILED);
+    expect(items[2]).toHaveTextContent("Bank payment");
+    expect(items[3]).toHaveTextContent(enMessages.Bookings.operations.events.DELIVERY_ACCEPTED);
+    expect(history.getByRole("img", { name: enMessages.Bookings.operations.events.DELIVERY_ACCEPTED })).toHaveClass("text-green-600");
+  });
+
+  it.each(Object.entries({ en: enMessages, es: esMessages, ca: caMessages }))("explains failures on hover and keyboard focus in %s", async (locale, messages) => {
+    const user = userEvent.setup();
+    render(<BookingHistory operations={[
+      operation("started", "DELIVERY_STARTED"), operation("result", "DELIVERY_FAILED", timestamp, "invalid_request"),
+    ]} lifecycle={[]} />, locale, messages);
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    const failure = screen.getByRole("button", { name: messages.Bookings.operations.events.DELIVERY_FAILED });
+    expect(failure.querySelector("svg")).toHaveClass("text-red-600");
+    await user.hover(failure);
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(messages.Bookings.operations.reasons.invalid_request);
+    await user.unhover(failure);
+    await user.tab();
+    expect(failure).toHaveFocus();
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(messages.Bookings.operations.reasons.invalid_request);
+  });
+
+  it("preserves unknown outcomes and hides untrusted failure text", async () => {
+    const user = userEvent.setup();
+    render(<BookingHistory operations={[operation("unknown", "DELIVERY_UNKNOWN", timestamp, "private@example.test")]} lifecycle={[]} />);
+    expect(screen.queryByRole("img", { name: enMessages.Bookings.operations.events.DELIVERY_ACCEPTED })).not.toBeInTheDocument();
+    await user.hover(screen.getByRole("button", { name: enMessages.Bookings.operations.events.DELIVERY_UNKNOWN }));
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(enMessages.Bookings.operations.reasons.unexpected);
+    expect(screen.getByRole("tooltip")).not.toHaveTextContent("private@example.test");
+  });
+});
+
 describe("booking detail estimate delivery warning", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -188,7 +241,7 @@ describe("booking detail estimate delivery warning", () => {
     expect(screen.getByRole("button", { name: enMessages.Bookings.actions.resendQuote })).toBeDisabled();
   });
 
-  it("shows durable document events separately from lifecycle history", async () => {
+  it("shows durable document events in the lifecycle history", async () => {
     mocks.getBookingDetail.mockResolvedValue({
       ...bookingWithDelivery("ACCEPTED"),
       operationEvents: [
@@ -197,8 +250,9 @@ describe("booking detail estimate delivery warning", () => {
       ],
     });
     render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
-    expect(screen.getByRole("region", { name: "Logs" })).toHaveTextContent(enMessages.Bookings.operations.events.ESTIMATE_CREATED);
-    expect(screen.getByRole("region", { name: "Logs" })).toHaveTextContent(enMessages.Bookings.operations.events.DELIVERY_ACCEPTED);
+    expect(screen.queryByRole("region", { name: "Logs" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: enMessages.Bookings.detail.history })).toHaveTextContent(enMessages.Bookings.operations.events.ESTIMATE_CREATED);
+    expect(screen.getByRole("region", { name: enMessages.Bookings.detail.history })).toHaveTextContent(enMessages.Bookings.operations.events.DELIVERY_ACCEPTED);
     expect(screen.getByRole("heading", { name: enMessages.Bookings.detail.history })).toBeVisible();
   });
 

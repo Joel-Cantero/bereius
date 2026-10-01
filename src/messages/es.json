@@ -896,9 +896,27 @@
   },
   "Bookings": {
     "operations": {
-      "title": "Logs",
-      "empty": "Todavía no hay operaciones registradas.",
-      "failure": "Motivo: {code}",
+      "empty": "Todavía no hay historial registrado.",
+      "reasons": {
+        "unauthorized": "Holded ha rechazado las credenciales de la integración.",
+        "not_found": "No se ha encontrado el documento o contacto en Holded.",
+        "rate_limited": "Se ha alcanzado el límite de peticiones de Holded. Inténtalo más tarde.",
+        "invalid_request": "Holded ha rechazado los datos del documento o del envío.",
+        "unavailable": "No se ha podido contactar con Holded o el servicio ha devuelto un error.",
+        "malformed_response": "No se ha podido verificar la respuesta de Holded con seguridad.",
+        "incomplete_configuration": "Faltan servicios, cuentas contables o series de numeración de Holded.",
+        "no_service": "No hay un servicio de Holded configurado para esta estancia.",
+        "wrong_state": "El estado actual de la solicitud no permite esta operación.",
+        "not_configured": "La integración con Holded no está configurada.",
+        "invalid_config": "La configuración de la integración con Holded no es válida.",
+        "missing_fiscal_email": "El cliente no tiene una dirección de correo fiscal válida.",
+        "invalid_delegate_email": "La dirección de correo de un delegado no es válida.",
+        "unlinked_customer": "El cliente no está vinculado a un contacto de Holded.",
+        "invalid_delivery": "Los datos del envío del documento no son válidos.",
+        "delivery_unknown": "No se ha podido confirmar el envío. El reenvío está bloqueado para evitar correos duplicados.",
+        "interrupted": "El envío se interrumpió antes de confirmarse. Holded puede haber enviado el correo; compruébalo antes de reenviar.",
+        "unexpected": "Se ha producido un error inesperado. Revisa la integración antes de reintentarlo."
+      },
       "events": {
         "QUOTE_REQUESTED": "Creación o reenvío del presupuesto en cola",
         "ESTIMATE_CREATED": "Presupuesto creado y vinculado en Holded",

@@ -28,6 +28,7 @@ import { ContactSyncButton } from "@/modules/booking/components/contact-sync";
 import { resendQuoteAction } from "@/modules/booking/actions/quotes";
 import { DecisionForm, PaymentForm, QuoteResendForm } from "@/modules/booking/components/decision-forms";
 import { BookingStateBadge } from "@/modules/booking/components/state-badge";
+import { BookingHistory } from "@/modules/booking/components/history";
 import { inspectCustomerContact } from "@/modules/booking/services/contact-sync";
 import { estimateNamesStay } from "@/modules/booking/services/contracts";
 import { getBookingDetail } from "@/modules/booking/services/queries";
@@ -457,43 +458,18 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         ) : null}
       </section>
 
-      <section aria-labelledby="operation-logs-heading" className="flex flex-col gap-1">
-        <h2 id="operation-logs-heading" className="text-lg font-medium">{t("operations.title")}</h2>
-        {booking.operationEvents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("operations.empty")}</p>
-        ) : (
-          <ol className="flex flex-col gap-2 text-sm">
-            {booking.operationEvents.map((event) => (
-              <li key={event.id}>
-                <time dateTime={event.createdAt.toISOString()} className="text-muted-foreground">
-                  {dateTimeFormat.format(event.createdAt)}
-                </time>{" "}
-                {t(`operations.events.${event.type}`)}
-                {event.actor?.name ? ` · ${event.actor.name}` : ""}
-                {event.failureCode ? ` · ${t("operations.failure", { code: event.failureCode })}` : ""}
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-
-      <section aria-labelledby="history-heading" className="flex flex-col gap-1">
-        <h2 id="history-heading" className="text-lg font-medium">
-          {t("detail.history")}
-        </h2>
-        <ol className="flex flex-col gap-1 text-sm">
-          {booking.auditEvents.map((event) => (
-            <li key={event.id}>
-              <span className="text-muted-foreground">
-                {dateTimeFormat.format(event.createdAt)}
-              </span>{" "}
-              {t(`states.${event.toState}`)} ·{" "}
-              {event.actor?.name ?? event.actor?.email ?? t("detail.systemActor")}
-              {event.reason ? ` · ${event.reason}` : ""}
-            </li>
-          ))}
-        </ol>
-      </section>
+      <BookingHistory
+        operations={booking.operationEvents.map((event) => ({
+          id: event.id, type: event.type, failureCode: event.failureCode,
+          createdAt: event.createdAt.toISOString(), timeLabel: dateTimeFormat.format(event.createdAt),
+          actorLabel: event.actor?.name ?? null,
+        }))}
+        lifecycle={booking.auditEvents.map((event) => ({
+          id: event.id, toState: event.toState, reason: event.reason,
+          createdAt: event.createdAt.toISOString(), timeLabel: dateTimeFormat.format(event.createdAt),
+          actorLabel: event.actor?.name ?? event.actor?.email ?? t("detail.systemActor"),
+        }))}
+      />
     </main>
   );
 }

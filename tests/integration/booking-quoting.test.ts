@@ -100,6 +100,7 @@ function stubClient(options: StubOptions = {}) {
     createInvoice: vi.fn(async () =>
       track("createInvoice", () => ({ id: `inv-${calls.length}`, number: "FAC-1" })),
     ),
+    removeEstimateDeductions: vi.fn(async () => track("removeEstimateDeductions", () => false)),
     replaceEstimateLines: vi.fn(async () => {
       track("replaceEstimateLines", () => undefined);
     }),
@@ -221,8 +222,9 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
       expect(client.createEstimate).not.toHaveBeenCalled();
       expect(client.createInvoice).not.toHaveBeenCalled();
       expect(client.readService).not.toHaveBeenCalled();
+      expect(client.removeEstimateDeductions).toHaveBeenCalledOnce();
       expect(client.replaceEstimateLines).not.toHaveBeenCalled();
-      expect(client.approveEstimate).not.toHaveBeenCalled();
+      expect(client.approveEstimate).toHaveBeenCalledOnce();
       expect(client.listDelegateEmails).not.toHaveBeenCalled();
       expect(await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } })).toEqual(before);
       const delivery = await db.documentDelivery.findUniqueOrThrow({ where: { holdedDocumentId: document.id } });
@@ -230,6 +232,49 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
       expect(await db.holdedDocument.count({ where: { bookingRequestId: booking.id } })).toBe(1);
     },
   );
+
+  it("corrects legacy deductions and approves the corrected contract before resend", async () => {
+    const { booking, document, client } = await issuedBooking();
+    vi.mocked(client.removeEstimateDeductions).mockResolvedValue(true);
+    const before = await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } });
+    await requestQuoteResend(booking.id, await actor());
+    const queued = await queuedJob(booking.id);
+    await runQuoteJob(queued, { client, config });
+    await runQuoteJob(queued, { client, config });
+    expect(client.removeEstimateDeductions).toHaveBeenCalledWith(document.holdedId, {
+      contactId: "contact-1", names: ["Dipòsit", "Reserva", "Bestreta"], serviceIds: ["svc-deposit", "svc-advance"],
+    });
+    expect(client.removeEstimateDeductions).toHaveBeenCalledOnce();
+    expect(client.approveEstimate).toHaveBeenCalledOnce();
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+    expect(vi.mocked(client.removeEstimateDeductions).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.approveEstimate).mock.invocationCallOrder[0]);
+    expect(vi.mocked(client.approveEstimate).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.sendEstimate).mock.invocationCallOrder[0]);
+    expect(client.readService).not.toHaveBeenCalled();
+    expect(client.createEstimate).not.toHaveBeenCalled();
+    expect(await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } })).toEqual(before);
+  });
+
+  it("retries approval after correction without sending an unapproved contract", async () => {
+    const { booking, client } = await issuedBooking();
+    vi.mocked(client.removeEstimateDeductions).mockResolvedValueOnce(true).mockResolvedValue(false);
+    vi.mocked(client.approveEstimate).mockRejectedValueOnce(new Error("approval failed"));
+    await requestQuoteResend(booking.id, await actor());
+    const queued = await queuedJob(booking.id);
+    await expect(runQuoteJob(queued, { client, config })).rejects.toThrow("approval failed");
+    expect(client.sendEstimate).not.toHaveBeenCalled();
+    await runQuoteJob(queued, { client, config });
+    expect(client.approveEstimate).toHaveBeenCalledTimes(2);
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+  });
+
+  it("never sends a linked contract if deduction correction fails", async () => {
+    const { booking, client } = await issuedBooking();
+    vi.mocked(client.removeEstimateDeductions).mockRejectedValue(new Error("unreadable contract"));
+    await requestQuoteResend(booking.id, await actor());
+    await expect(runQuoteJob(await queuedJob(booking.id), { client, config })).rejects.toThrow("unreadable contract");
+    expect(client.sendEstimate).not.toHaveBeenCalled();
+    expect(client.createEstimate).not.toHaveBeenCalled();
+  });
 
   it("finishes a partially generated linked estimate before sending it", async () => {
     const booking = await approvedBooking();
@@ -362,9 +407,7 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     expect(updated.paymentDueAt).not.toBeNull();
     expect(client.replaceEstimateLines).toHaveBeenCalledWith(
       expect.any(String),
-      expect.arrayContaining([
-        expect.objectContaining({ serviceId: "svc-advance", price: -432 }),
-      ]),
+      [expect.objectContaining({ serviceId: "svc-dc40", price: 18, units: 80 })],
     );
   });
 
@@ -382,9 +425,7 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     });
     expect(client.replaceEstimateLines).toHaveBeenCalledWith(
       expect.any(String),
-      expect.arrayContaining([
-        expect.objectContaining({ serviceId: "svc-deposit", price: -225 }),
-      ]),
+      [expect.objectContaining({ serviceId: "svc-dc40", price: 18, units: 80 })],
     );
   });
 
@@ -567,21 +608,18 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     ).resolves.toBe(0);
   });
 
-  it("describes the stay and names its lines the way the account already does", async () => {
+  it("keeps the full stay in the contract and payment conditions in the notes", async () => {
     const booking = await approvedBooking();
     const { client } = stubClient();
 
     await runQuoteJob(job(booking.id), { client, config });
 
     expect(client.createEstimate).toHaveBeenCalledWith(
-      expect.objectContaining({ description: "01/06/27 - 03/06/27 - 40 persones DC" }),
+      expect.objectContaining({ description: "01/06/27 - 03/06/27 - 40 persones DC", notes: expect.stringContaining("Reserva bestreta: 432") }),
     );
     expect(client.replaceEstimateLines).toHaveBeenCalledWith(
       expect.anything(),
-      expect.arrayContaining([
-        expect.objectContaining({ name: "Dipòsit" }),
-        expect.objectContaining({ name: "Reserva" }),
-      ]),
+      [expect.objectContaining({ serviceId: "svc-dc40", price: 18, units: 80 })],
     );
   });
 
@@ -609,7 +647,7 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     expect(client.createEstimate).not.toHaveBeenCalled();
   });
 
-  it("keeps the refundable deposit out of the taxable base", async () => {
+  it("does not subtract the deposit or advance from the stay taxable base", async () => {
     const booking = await approvedBooking();
     const { client } = stubClient();
 
@@ -617,18 +655,11 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
 
     expect(client.replaceEstimateLines).toHaveBeenCalledWith(
       expect.anything(),
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: "Dipòsit",
-          serviceId: "svc-deposit",
-          accountId: "account-for-svc-deposit",
-          taxes: ["s_iva_nosujeto"],
-        }),
-      ]),
+      [expect.objectContaining({ serviceId: "svc-dc40", price: 18, taxes: ["s_iva_10"] })],
     );
   });
 
-  it("posts each deduction to the account its own service declares", async () => {
+  it("posts the full stay to its original accounting account", async () => {
     const booking = await approvedBooking();
     const { client } = stubClient();
 
@@ -636,16 +667,7 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
 
     expect(client.replaceEstimateLines).toHaveBeenCalledWith(
       expect.any(String),
-      expect.arrayContaining([
-        expect.objectContaining({
-          serviceId: "svc-advance",
-          accountId: "account-for-svc-advance",
-        }),
-        expect.objectContaining({
-          serviceId: "svc-deposit",
-          accountId: "account-for-svc-deposit",
-        }),
-      ]),
+      [expect.objectContaining({ serviceId: "svc-dc40", accountId: "account-for-svc-dc40" })],
     );
   });
 

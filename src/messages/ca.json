@@ -896,9 +896,27 @@
   },
   "Bookings": {
     "operations": {
-      "title": "Logs",
-      "empty": "Encara no hi ha operacions registrades.",
-      "failure": "Motiu: {code}",
+      "empty": "Encara no hi ha historial registrat.",
+      "reasons": {
+        "unauthorized": "Holded ha rebutjat les credencials de la integració.",
+        "not_found": "No s'ha trobat el document o contacte a Holded.",
+        "rate_limited": "S'ha arribat al límit de peticions de Holded. Torna-ho a provar més tard.",
+        "invalid_request": "Holded ha rebutjat les dades del document o de l'enviament.",
+        "unavailable": "No s'ha pogut contactar amb Holded o el servei ha retornat un error.",
+        "malformed_response": "No s'ha pogut verificar la resposta de Holded amb seguretat.",
+        "incomplete_configuration": "Falten serveis, comptes comptables o sèries de numeració de Holded.",
+        "no_service": "No hi ha cap servei de Holded configurat per a aquesta estada.",
+        "wrong_state": "L'estat actual de la sol·licitud no permet aquesta operació.",
+        "not_configured": "La integració amb Holded no està configurada.",
+        "invalid_config": "La configuració de la integració amb Holded no és vàlida.",
+        "missing_fiscal_email": "El client no té una adreça de correu fiscal vàlida.",
+        "invalid_delegate_email": "L'adreça de correu d'un delegat no és vàlida.",
+        "unlinked_customer": "El client no està vinculat a un contacte de Holded.",
+        "invalid_delivery": "Les dades de l'enviament del document no són vàlides.",
+        "delivery_unknown": "No s'ha pogut confirmar l'enviament. El reenvio està bloquejat per evitar correus duplicats.",
+        "interrupted": "L'enviament es va interrompre abans de confirmar-se. Holded pot haver enviat el correu; comprova-ho abans de reenviar.",
+        "unexpected": "S'ha produït un error inesperat. Revisa la integració abans de tornar-ho a provar."
+      },
       "events": {
         "QUOTE_REQUESTED": "Creació o reenvio del pressupost en cua",
         "ESTIMATE_CREATED": "Pressupost creat i vinculat a Holded",
