@@ -105,6 +105,20 @@ alone is insufficient because a publicly reachable Traefik instance can forward 
 headers. When the guarantee is enforced, set the GitHub Variable to `true`; otherwise forwarded host
 and address headers remain ignored and the email limiter uses one conservative shared client bucket.
 
+### Calendar integration
+
+Administrators configure an HTTPS ICS source in **Integrations → ICS calendar**, then select
+**Test connection**. The URL is encrypted and write-only because it may contain a feed token.
+Operators and administrators can view the source in the **Calendar** sidebar section and navigate
+between months; this never imports bookings or changes WordPress availability. All-day departure
+dates are exclusive. Timed events are displayed on Europe/Madrid dates, with embedded ICS time zones
+honored by the parser.
+
+The source must resolve to public addresses and return HTTP 200 without redirects on HTTPS port
+443. Downloads are bounded to 10 seconds and 2 MiB. Missing or unavailable sources have explicit
+localized states. Apply the additive `CALENDAR_ICS` migration before deploying this feature. No
+additional environment variable is needed beyond the existing `BOOKING_SECRET_KEY`.
+
 ## Deployment
 
 Push to `main` triggers [`.github/workflows/ci.yml`](.github/workflows/ci.yml). After every parallel
@@ -204,9 +218,10 @@ locks that account's import start date after synchronization begins. The current
 accepts EUR only. No banking-specific environment variable, secret, container, port, or service is
 introduced.
 
-- **Read-only synchronization.** PostgreSQL schedules one run every six hours. Routine runs use a
-  14-day overlap while a complete retained-window scan is less than 24 hours old; otherwise they
-  scan the full retained window. Manual refreshes and pre-expiry checks always use the full window.
+- **Manual read-only synchronization.** Saving an account does not enqueue an import. Only an
+  authorized manual refresh requests a full retained-window scan. The minute worker processes
+  those requests, pagination and bounded retries; it never schedules a new scan. Legacy scheduled
+  and expiry-triggered runs remain in history but are not executed.
   Account-scoped provider identifiers and exact signed minor units make repeated pages idempotent.
 - **Human reconciliation.** Exact estimate-number and amount matches create proposals only. A person
   must confirm or dismiss every proposal; synchronization never records a payment automatically.
@@ -216,17 +231,34 @@ introduced.
   pruned separately.
 - **Outage recovery.** Existing movements remain visible when Holded is unavailable. Runs use leases,
   bounded exponential retries and durable progress; booking expiry requires fresh clean bank evidence
-  and is deferred during degradation. Holded degradation does not make `/api/health` unhealthy.
+  and is deferred during degradation. Expiry checks never call Holded. After a clean manual scan,
+  only bookings already due when that scan first started are evaluated, including after retries;
+  pending reconciliation proposals remain protected. Later deadlines need another manual refresh.
+  Holded degradation does not make `/api/health` unhealthy.
 - **Private observability.** Logs contain local run/account IDs, fixed codes, enums, counters and
   durations only. Credentials, provider IDs and cursors, dates, amounts, narratives, references,
   counterparties, response bodies and provider messages are redacted or excluded. The localized
   `/bank-movements` pages are authenticated, absent from the sitemap and marked `noindex`.
+
+Each outgoing Holded HTTP attempt, including document sends, emits an info-level `holded_request`
+event with a fixed endpoint template and caller, method, transport outcome, HTTP status and duration.
+Query values, dynamic IDs, request/response bodies and raw exceptions never enter these events.
+Cache hits produce no outgoing event; paginated reads produce one per HTTP page. A `response`
+outcome reports receipt of HTTP, not document acceptance or successful JSON validation. These
+traces identify Bereius callers, not external consumers that might share its Holded credential.
 
 Deploy banking changes migration-first through the existing one-shot migrator, then start the new
 application image. The additive schema remains compatible with the previous image. On an application
 failure, redeploy compatible code without reversing the migration; correct schema defects with a new
 forward migration. Restore a verified logical backup only for actual database recovery, following the
 existing empty-target restore procedure.
+
+The manual-only change requires no additional schema migration. Verify an authorized refresh and
+its terminal status after rollout; opening the bank page or saving its settings must not import
+movements. Rolling back to older banking code restores automatic scans and pre-expiry provider
+calls, so obtain approval before doing so. Validation evidence and outstanding Holded API budget
+work are tracked in
+[`specs/20261001-holded-api-budget/plan.md`](specs/20261001-holded-api-budget/plan.md).
 
 ## Database, backups & health
 

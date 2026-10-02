@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -10,6 +10,85 @@ import {
   HOLDED_BASE_URL,
 } from "@/lib/holded/client";
 import { createHttpMailProvider, type FakeProviderBehavior } from "../helpers/http-mail-provider";
+import { logger } from "@/lib/logger";
+
+describe("Holded outgoing request tracing", () => {
+  beforeEach(() => {
+    vi.spyOn(logger, "info").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function traces() {
+    return vi.mocked(logger.info).mock.calls.map(([entry]) => entry as Record<string, unknown>);
+  }
+
+  it.each(["sendEstimate", "sendInvoice"] as const)("traces %s without recipients, template, subject or body", async (method) => {
+    const http = createHttpMailProvider([page({ provider_message: "private-provider-body" })]);
+    const client = createHoldedClient("private-credential", http.client, "booking.quoting");
+    await client[method]("private-document-id", {
+      emails: ["private-recipient@example.test"], cc: ["private-delegate@example.test"],
+    }, "private-template-id", "private-subject");
+    expect(traces()).toHaveLength(1);
+    expect(traces()[0]).toMatchObject({
+      endpoint: method === "sendEstimate" ? "/estimates/:id/send" : "/invoices/:id/send",
+      method: "POST", caller: "booking.quoting", outcome: "response", status: 200,
+    });
+    expect(JSON.stringify(traces())).not.toContain("private-");
+  });
+
+  it.each([400, 401, 429, 500, 302])("traces HTTP %i without provider messages or redirect destinations", async (httpStatus) => {
+    const http = createHttpMailProvider([{
+      status: httpStatus, body: "private-error-body",
+      headers: { location: "https://private-redirect.example.test/?token=private-token" },
+    }]);
+    await expect(createHoldedClient("private-credential", http.client, "booking.settings").ping()).rejects.toBeInstanceOf(Error);
+    expect(traces()).toHaveLength(1);
+    expect(traces()[0]).toMatchObject({ endpoint: "/services", method: "GET", caller: "booking.settings", outcome: "response", status: httpStatus });
+    expect(JSON.stringify(traces())).not.toContain("private-");
+  });
+
+  it.each([new Error("private-network-error"), new DOMException("private-timeout-error", "TimeoutError")])("traces transport failures without raw exceptions", async (error) => {
+    const http = createHttpMailProvider([{ error }]);
+    await expect(createHoldedClient("private-credential", http.client).ping()).rejects.toMatchObject({ code: "unavailable" });
+    expect(traces()).toHaveLength(1);
+    expect(traces()[0]).toMatchObject({ endpoint: "/services", caller: "unknown", outcome: "network_error", status: null, statusClass: null, durationMs: expect.any(Number) });
+    expect(JSON.stringify(traces())).not.toContain("private-");
+  });
+
+  it("uses an unknown template and caller for unexpected values instead of echoing them", async () => {
+    const http = createHttpMailProvider([page({ id: "private-contact-id" })]);
+    const client = createHoldedClient("private-credential", http.client, "private-caller" as never);
+    await client.getContact("private-contact-id/private-path");
+    expect(traces()[0]).toMatchObject({ endpoint: "/unknown", caller: "unknown" });
+    expect(JSON.stringify(traces())).not.toContain("private-");
+  });
+
+  it("traces both reads and writes without contact data", async () => {
+    const http = createHttpMailProvider([page({ id: "private-contact-id", name: "private-name" }), page({})]);
+    await createHoldedClient("private-credential", http.client, "booking.contacts").updateContact("private-contact-id", {
+      name: "private-name", code: "private-code", email: "private-email@example.test",
+    });
+    expect(traces().map(({ endpoint, method, caller }) => ({ endpoint, method, caller }))).toEqual([
+      { endpoint: "/contacts/:id", method: "GET", caller: "booking.contacts" },
+      { endpoint: "/contacts/:id", method: "PUT", caller: "booking.contacts" },
+    ]);
+    expect(JSON.stringify(traces())).not.toContain("private-");
+  });
+
+  it("records each estimate page once and emits no outgoing event for a cached read", async () => {
+    const http = createHttpMailProvider([
+      page({ items: [{ id: "private-estimate-id" }], has_more: true, cursor: "private-cursor" }),
+      page({ items: [], has_more: false }),
+    ]);
+    const client = createHoldedClient("private-credential", http.client, "booking.contracts");
+    await client.listEstimates();
+    await client.listEstimates();
+    expect(http.requests).toHaveLength(2);
+    expect(traces()).toHaveLength(2);
+    expect(traces().every(({ endpoint, caller, method }) => endpoint === "/estimates" && caller === "booking.contracts" && method === "GET")).toBe(true);
+    expect(JSON.stringify(traces())).not.toContain("private-");
+  });
+});
 
 function page(body: unknown): FakeProviderBehavior {
   return {

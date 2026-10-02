@@ -172,6 +172,7 @@ enum IntegrationProvider {
   HOLDED
   GRAVITY_FORMS
   BOOKING_MAIL
+  CALENDAR_ICS
 }
 
 enum DocumentDeliveryStatus {

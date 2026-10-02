@@ -283,7 +283,7 @@ export async function runReserveInvoiceJob(
     ? { config: overrides.config, secret: "" }
     : await resolveIntegration("HOLDED");
   const config = resolved.config;
-  const client = overrides.client ?? createHoldedClient(resolved.secret);
+  const client = overrides.client ?? createHoldedClient(resolved.secret, undefined, "booking.reserve-invoice");
   const subject = bookingManagementSubject(config.language);
   const booking = issuance.bookingRequest;
   const existingDocument =

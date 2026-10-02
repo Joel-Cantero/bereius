@@ -82,6 +82,17 @@ export async function buildConsoleNavigation(
         ],
       },
       {
+        key: "calendar",
+        label: t("sections.calendar"),
+        links: [
+          {
+            href: "/calendar",
+            label: t("links.calendar.label"),
+            description: t("links.calendar.description"),
+          },
+        ],
+      },
+      {
         key: "holded",
         label: t("sections.holded"),
         links: [

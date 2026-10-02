@@ -1,4 +1,5 @@
 import {
+  CalendarDays,
   CalendarCheck,
   FileSignature,
   FileText,
@@ -31,6 +32,7 @@ export interface ConsoleUser {
 
 /** Resolved from the route, because a component cannot cross the server boundary. */
 const ICONS: Record<string, LucideIcon> = {
+  "/calendar": CalendarDays,
   "/bookings": CalendarCheck,
   "/contracts": FileSignature,
   "/bank-movements": Landmark,

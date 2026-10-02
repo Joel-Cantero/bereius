@@ -11,6 +11,9 @@ import { createHoldedClient, HoldedError } from "@/lib/holded/client";
 import { createSmtpSender, SmtpError } from "@/lib/mail/smtp";
 import { getEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { revalidatePath } from "next/cache";
+import { calendarUrlSchema, fetchCalendarSource } from "@/modules/calendar/source";
+import { parseCalendar } from "@/modules/calendar/ical";
 import {
   AuthorizationError,
   requireBookingActor,
@@ -50,6 +53,7 @@ const providerSchema = z.enum([
   "HOLDED",
   "GRAVITY_FORMS",
   "BOOKING_MAIL",
+  "CALENDAR_ICS",
 ]);
 
 const RATE_SKUS = [
@@ -115,6 +119,28 @@ export async function readIntegrationStatus(): Promise<IntegrationStatus[]> {
   return listIntegrationStatus();
 }
 
+export async function saveCalendarSettings(
+  _previous: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  try {
+    const actor = await requireBookingActor("ADMINISTRATOR");
+    const input = formData.get("calendarUrl");
+    const parsed = calendarUrlSchema.safeParse(input);
+    if (!parsed.success) return { status: "error", reason: "invalid" };
+    await saveIntegrationSettings({
+      provider: "CALENDAR_ICS",
+      config: {},
+      secret: parsed.data,
+      updatedById: actor.userId,
+    });
+    revalidatePath("/", "layout");
+    return { status: "saved" };
+  } catch (error) {
+    return toErrorState(error);
+  }
+}
+
 export async function saveBookingMailSettings(
   _previous: SettingsActionState,
   formData: FormData,
@@ -167,7 +193,16 @@ export async function testIntegration(
     await requireBookingActor("ADMINISTRATOR");
     const validated = providerSchema.parse(provider);
 
-    if (validated === "BOOKING_MAIL") {
+    if (validated === "CALENDAR_ICS") {
+      const { secret } = await resolveIntegration("CALENDAR_ICS");
+      try {
+        const source = await fetchCalendarSource(secret);
+        const now = new Date();
+        parseCalendar(source, now, new Date(now.getTime() + 31 * 86400000));
+      } catch {
+        return { status: "error", reason: "connection" };
+      }
+    } else if (validated === "BOOKING_MAIL") {
       const { config, secret } = await resolveIntegration("BOOKING_MAIL");
       await createSmtpSender(
         {
@@ -182,7 +217,7 @@ export async function testIntegration(
       ).verify();
     } else if (validated === "HOLDED") {
       const { secret } = await resolveIntegration("HOLDED");
-      await createHoldedClient(secret).ping();
+      await createHoldedClient(secret, undefined, "booking.integration-test").ping();
     } else {
       const { config, secret } = await resolveIntegration("GRAVITY_FORMS");
       await createGravityFormsClient({
@@ -194,6 +229,7 @@ export async function testIntegration(
     }
 
     await markIntegrationVerified(validated);
+    if (validated === "CALENDAR_ICS") revalidatePath("/", "layout");
 
     return { status: "verified" };
   } catch (error) {

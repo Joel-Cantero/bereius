@@ -171,7 +171,7 @@ describe("booking worker scheduler", () => {
     await scheduler.stop();
   });
 
-  it("enqueues due banking work and processes its claimed run", async () => {
+  it("processes manually requested banking work without enqueuing periodic scans", async () => {
     const lease = {
       runId: "local-due-run",
       accountId: "local-account",
@@ -187,8 +187,9 @@ describe("booking worker scheduler", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(schedulerMocks.enqueueDueBankSyncRuns).toHaveBeenCalledOnce();
+    expect(schedulerMocks.enqueueDueBankSyncRuns).not.toHaveBeenCalled();
     expect(schedulerMocks.processBankSync).toHaveBeenCalledWith(lease);
+    expect(schedulerMocks.expireUnpaidBookings).toHaveBeenCalledWith(expect.any(Date), lease.runId);
     expect(schedulerMocks.runBankRetention).toHaveBeenCalledOnce();
     await scheduler.stop();
   });
@@ -199,7 +200,7 @@ describe("booking worker scheduler", () => {
 
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(schedulerMocks.enqueueDueBankSyncRuns).toHaveBeenCalledOnce();
+    expect(schedulerMocks.enqueueDueBankSyncRuns).not.toHaveBeenCalled();
     expect(schedulerMocks.drainOutbox).toHaveBeenCalledOnce();
     expect(schedulerMocks.expireUnpaidBookings).toHaveBeenCalledOnce();
     expect(schedulerMocks.runBankRetention).toHaveBeenCalledOnce();
@@ -212,23 +213,23 @@ describe("booking worker scheduler", () => {
 
   it("never overlaps a slow banking sweep with its next interval", async () => {
     const pending = deferred();
-    schedulerMocks.enqueueDueBankSyncRuns.mockImplementation(() => pending.promise);
+    schedulerMocks.claimNextBankSync.mockImplementation(() => pending.promise);
     const scheduler = startScheduler();
 
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(SCHEDULES.banking * 3);
-    expect(schedulerMocks.enqueueDueBankSyncRuns).toHaveBeenCalledOnce();
+    expect(schedulerMocks.claimNextBankSync).toHaveBeenCalledOnce();
 
     pending.resolve();
     await vi.advanceTimersByTimeAsync(0);
     await vi.advanceTimersByTimeAsync(SCHEDULES.banking);
-    expect(schedulerMocks.enqueueDueBankSyncRuns).toHaveBeenCalledTimes(2);
+    expect(schedulerMocks.claimNextBankSync).toHaveBeenCalledTimes(2);
     await scheduler.stop();
   });
 
   it("waits for claimed in-flight work during a graceful stop", async () => {
     const pending = deferred();
-    schedulerMocks.enqueueDueBankSyncRuns.mockImplementation(() => pending.promise);
+    schedulerMocks.claimNextBankSync.mockImplementation(() => pending.promise);
     const scheduler = startScheduler();
     await vi.advanceTimersByTimeAsync(0);
     let stopped = false;

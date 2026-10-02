@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { createHoldedClient, HOLDED_BASE_URL } from "@/lib/holded/client";
+import { logger } from "@/lib/logger";
 import {
   HOLDED_REQUEST_TIMEOUT_MS,
   HOLDED_RESPONSE_LIMIT_BYTES,
@@ -58,6 +59,57 @@ async function errorOf(promise: Promise<unknown>) {
 }
 
 describe("Holded treasury reads", () => {
+  it("traces oversized responses without retaining their contents in logs", async () => {
+    const trace = vi.spyOn(logger, "info").mockImplementation(() => {});
+    try {
+      const fixtures = createHoldedTreasuryFixtureScope();
+      const account = fixtures.account();
+      const http = createHttpMailProvider([{
+        status: 200, body: "private-provider-data".repeat(HOLDED_RESPONSE_LIMIT_BYTES),
+      }]);
+      await expect(createHoldedClient("private-credential", http.client, "banking.synchronization")
+        .listBankMovements({ accountId: account.id, startDate: "2026-06-18" }))
+        .rejects.toMatchObject({ code: "response_too_large" });
+      expect(trace).toHaveBeenCalledTimes(1);
+      expect(trace).toHaveBeenCalledWith(expect.objectContaining({
+        endpoint: "/treasury/accounts/:id/bank-movements", caller: "banking.synchronization",
+        outcome: "response", status: 200, bodyTooLarge: true,
+      }), "Holded request completed");
+      expect(JSON.stringify(trace.mock.calls)).not.toContain("private-");
+    } finally {
+      trace.mockRestore();
+    }
+  });
+
+  it("traces an outgoing movement request without identifiers, query values or provider data", async () => {
+    const trace = vi.spyOn(logger, "info").mockImplementation(() => {});
+    try {
+      const fixtures = createHoldedTreasuryFixtureScope();
+      const account = fixtures.account();
+      const http = createHttpMailProvider([page(fixtures.page([fixtures.movement(account.id)]))]);
+      await createHoldedClient(HOLDED_TEST_SENTINELS.credential, http.client, "banking.synchronization")
+        .listBankMovements({ accountId: account.id, startDate: "2026-06-18", cursor: "private-cursor" });
+      expect(trace).toHaveBeenCalledTimes(1);
+      expect(trace).toHaveBeenCalledWith({
+        event: "holded_request",
+        endpoint: "/treasury/accounts/:id/bank-movements",
+        method: "GET",
+        caller: "banking.synchronization",
+        outcome: "response",
+        status: 200,
+        statusClass: "2xx",
+        bodyTooLarge: false,
+        durationMs: expect.any(Number),
+      }, "Holded request completed");
+      const logged = JSON.stringify(trace.mock.calls);
+      for (const privateValue of [account.id, "2026-06-18", "private-cursor", ...Object.values(HOLDED_TEST_SENTINELS)]) {
+        expect(logged).not.toContain(privateValue);
+      }
+    } finally {
+      trace.mockRestore();
+    }
+  });
+
   it("walks account pages with opaque cursors and strips private fields", async () => {
     const fixtures = createHoldedTreasuryFixtureScope();
     const second = fixtures.account({ name: "Second synthetic account" });

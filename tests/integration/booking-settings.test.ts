@@ -28,7 +28,7 @@ describe.skipIf(!runIntegrationTests)("booking integration settings", () => {
    * These run against the development database, so a provider the developer has
    * already configured must survive the test that overwrites it.
    */
-  async function borrowProvider(provider: "BOOKING_MAIL" | "HOLDED") {
+  async function borrowProvider(provider: "BOOKING_MAIL" | "HOLDED" | "CALENDAR_ICS") {
     const original = await db.integrationSettings.findUnique({ where: { provider } });
 
     return async () => {
@@ -193,6 +193,24 @@ describe.skipIf(!runIntegrationTests)("booking integration settings", () => {
       expect(resolved.secret).toBe("holded-key");
       expect(resolved.config.advanceServiceId).toBeUndefined();
       expect(resolved.config.depositServiceId).toBeUndefined();
+    } finally {
+      await restore();
+    }
+  });
+
+  it("stores the ICS URL encrypted and resets verification when replaced", async () => {
+    const restore = await borrowProvider("CALENDAR_ICS");
+    const secret = "https://example.test/feed.ics?token=synthetic-secret";
+    try {
+      await saveIntegrationSettings({ provider: "CALENDAR_ICS", config: {}, secret, updatedById: null });
+      await markIntegrationVerified("CALENDAR_ICS");
+      const row = await db.integrationSettings.findUniqueOrThrow({ where: { provider: "CALENDAR_ICS" } });
+      expect(JSON.stringify(row.config)).not.toContain(secret);
+      expect(Buffer.from(row.secretCiphertext!).toString("utf8")).not.toContain(secret);
+      expect(JSON.stringify(await listIntegrationStatus())).not.toContain(secret);
+      await expect(resolveIntegration("CALENDAR_ICS")).resolves.toMatchObject({ secret });
+      await saveIntegrationSettings({ provider: "CALENDAR_ICS", config: {}, secret: "https://example.test/replaced.ics", updatedById: null });
+      expect((await db.integrationSettings.findUniqueOrThrow({ where: { provider: "CALENDAR_ICS" } })).verifiedAt).toBeNull();
     } finally {
       await restore();
     }

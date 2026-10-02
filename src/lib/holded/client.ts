@@ -10,6 +10,7 @@ import {
   type ProviderHttpOutcome,
 } from "@/lib/email/http";
 import type { ProviderHttpClient } from "@/lib/email/types";
+import { logger } from "@/lib/logger";
 import {
   HOLDED_REQUEST_TIMEOUT_MS,
   HOLDED_RESPONSE_LIMIT_BYTES,
@@ -28,6 +29,44 @@ import {
  */
 export const HOLDED_BASE_URL = "https://api.holded.com/api/v2";
 export const HOLDED_TIMEOUT_MS = HOLDED_REQUEST_TIMEOUT_MS;
+
+const holdedCallerSchema = z.enum([
+  "unknown",
+  "banking.accounts",
+  "banking.synchronization",
+  "booking.integration-test",
+  "booking.contacts",
+  "booking.contracts",
+  "booking.quoting",
+  "booking.reserve-invoice",
+  "booking.settings",
+]);
+
+export type HoldedCaller = z.infer<typeof holdedCallerSchema>;
+
+function holdedEndpointTemplate(logicalUrl: string): string {
+  const pathname = new URL(logicalUrl).pathname.replace(/^\/api\/v2/u, "");
+  const routes: [RegExp, string][] = [
+    [/^\/services$/u, "/services"],
+    [/^\/services\/[^/]+$/u, "/services/:id"],
+    [/^\/sales-channels$/u, "/sales-channels"],
+    [/^\/payment-methods$/u, "/payment-methods"],
+    [/^\/treasury\/accounts$/u, "/treasury/accounts"],
+    [/^\/treasury\/accounts\/[^/]+\/bank-movements$/u, "/treasury/accounts/:id/bank-movements"],
+    [/^\/contacts$/u, "/contacts"],
+    [/^\/contacts\/[^/]+$/u, "/contacts/:id"],
+    [/^\/estimates$/u, "/estimates"],
+    [/^\/estimates\/[^/]+$/u, "/estimates/:id"],
+    [/^\/estimates\/[^/]+\/approve$/u, "/estimates/:id/approve"],
+    [/^\/estimates\/[^/]+\/send$/u, "/estimates/:id/send"],
+    [/^\/invoices$/u, "/invoices"],
+    [/^\/invoices\/[^/]+$/u, "/invoices/:id"],
+    [/^\/invoices\/[^/]+\/approve$/u, "/invoices/:id/approve"],
+    [/^\/invoices\/[^/]+\/send$/u, "/invoices/:id/send"],
+    [/^\/numbering-series\/(estimate|invoice)$/u, "/numbering-series/:type"],
+  ];
+  return routes.find(([pattern]) => pattern.test(pathname))?.[1] ?? "/unknown";
+}
 
 /** Every document already in the account carries tax-inclusive line prices. */
 const TAX_INCLUDED = true;
@@ -698,17 +737,35 @@ function readCataloguePage(payload: unknown) {
 export function createHoldedClient(
   apiKey: string,
   httpClient: ProviderHttpClient = nativeProviderHttpClient,
+  caller: HoldedCaller = "unknown",
 ): HoldedClient {
   const credentialScope = `${createHash("sha256")
     .update(apiKey)
     .digest("base64url")}:${cacheTransportScope(httpClient)}`;
+
+  async function execute(input: Parameters<typeof executeProviderRequest>[0]) {
+    const outcome = await executeProviderRequest(input);
+    logger.info({
+      event: "holded_request",
+      endpoint: holdedEndpointTemplate(input.logicalUrl),
+      method: ["GET", "POST", "PUT", "DELETE"].includes(input.init.method ?? "")
+        ? input.init.method : "unknown",
+      caller: holdedCallerSchema.safeParse(caller).data ?? "unknown",
+      outcome: outcome.kind,
+      status: outcome.kind === "response" ? outcome.status : null,
+      statusClass: outcome.kind === "response" ? outcome.statusClass : null,
+      bodyTooLarge: outcome.kind === "response" && outcome.bodyTooLarge,
+      durationMs: outcome.durationMs,
+    }, "Holded request completed");
+    return outcome;
+  }
 
   async function send(
     logicalUrl: string,
     init: Record<string, unknown>,
     maxResponseBytes?: number,
   ): Promise<unknown> {
-    const outcome = await executeProviderRequest({
+    const outcome = await execute({
       client: httpClient,
       logicalUrl,
       init,
@@ -836,7 +893,7 @@ export function createHoldedClient(
     mailTemplateId?: string,
     subject?: string,
   ): Promise<void> {
-    const outcome = await executeProviderRequest({
+    const outcome = await execute({
       client: httpClient,
       logicalUrl: `${HOLDED_BASE_URL}/${collection}/${documentId}/send`,
       init: {

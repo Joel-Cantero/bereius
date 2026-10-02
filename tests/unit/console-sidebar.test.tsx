@@ -164,6 +164,11 @@ describe("role-filtered console navigation", () => {
         label: "links.bankMovements.label",
         description: "links.bankMovements.description",
       });
+      expect(navigation?.sections.find((section) => section.key === "calendar")?.links).toContainEqual({
+        href: "/calendar",
+        label: "links.calendar.label",
+        description: "links.calendar.description",
+      });
     },
   );
 

@@ -57,7 +57,7 @@ export type ContractDetail =
 async function connect(): Promise<HoldedClient | null> {
   try {
     const { secret } = await resolveIntegration("HOLDED");
-    return createHoldedClient(secret);
+    return createHoldedClient(secret, undefined, "booking.contracts");
   } catch {
     return null;
   }

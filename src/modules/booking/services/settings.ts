@@ -97,6 +97,7 @@ const CONFIG_SCHEMAS = {
   GRAVITY_FORMS: gravityFormsConfigSchema,
   HOLDED: holdedConfigSchema,
   BOOKING_MAIL: bookingMailConfigSchema,
+  CALENDAR_ICS: z.object({}).strict(),
 } as const satisfies Record<IntegrationProvider, z.ZodType>;
 
 export type GravityFormsConfig = z.infer<typeof gravityFormsConfigSchema>;
@@ -270,7 +271,7 @@ export async function readHoldedCatalogues(): Promise<HoldedCatalogues> {
   let client;
   try {
     const { secret } = await resolveIntegration("HOLDED");
-    client = createHoldedClient(secret);
+    client = createHoldedClient(secret, undefined, "booking.settings");
   } catch {
     return emptyCatalogues("no_key");
   }

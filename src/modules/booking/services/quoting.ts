@@ -216,7 +216,7 @@ async function generateQuote(
     ? { config: overrides.config, secret: "" }
     : await resolveIntegration("HOLDED");
   const config = resolved.config;
-  const client = overrides.client ?? createHoldedClient(resolved.secret);
+  const client = overrides.client ?? createHoldedClient(resolved.secret, undefined, "booking.quoting");
 
   const quoteReady = linkedEstimate && (
     payload.resumeCreation !== true || booking.state !== "AWAITING_PAYMENT" ||

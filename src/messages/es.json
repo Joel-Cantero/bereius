@@ -182,6 +182,23 @@
     "title": "Aplicación web",
     "description": "Plantilla de Next.js autoalojada y dockerizada"
   },
+  "Calendar": {
+    "title": "Calendario",
+    "description": "Calendario de reservas",
+    "integrationTitle": "Calendario ICS",
+    "url": "URL HTTPS del calendario ICS",
+    "previous": "Mes anterior",
+    "next": "Mes siguiente",
+    "today": "Hoy",
+    "unnamed": "Evento sin nombre",
+    "allDay": "Todo el día",
+    "empty": "No hay eventos este mes.",
+    "agenda": "Eventos",
+    "invalidMonth": "Mes no válido. Se muestra el mes actual.",
+    "not_configured": "El calendario no tiene una fuente configurada.",
+    "unavailable": "No se ha podido cargar el calendario. Inténtalo más tarde.",
+    "integrations": "Integraciones"
+  },
   "Console": {
     "title": "Consola",
     "subtitle": "Todo lo que gestiona esta aplicación, en un solo sitio.",
@@ -189,11 +206,16 @@
     "userMenu": "Menú de la cuenta",
     "logout": "Cerrar sesión",
     "sections": {
+      "calendar": "Calendario",
       "bookings": "Reservas",
       "holded": "Holded",
       "account": "Cuenta"
     },
     "links": {
+      "calendar": {
+        "label": "Calendario",
+        "description": "Consulta los eventos del calendario ICS conectado."
+      },
       "queue": {
         "label": "Cola",
         "description": "Revisa solicitudes, apruébalas y registra pagos."
@@ -1143,7 +1165,7 @@
         "importStartDateLocked": "Esta fecha es fija porque ya se ha iniciado una importación.",
         "save": "Guardar cuenta bancaria",
         "saving": "Guardando…",
-        "saved": "Cuenta bancaria guardada y sincronización en cola.",
+        "saved": "Cuenta bancaria guardada.",
         "availability": {
           "not_configured": "Guarda la clave de API de Holded antes de elegir una cuenta bancaria.",
           "unauthorized": "Holded ha rechazado la clave o le faltan permisos de lectura de tesorería.",
@@ -1200,7 +1222,8 @@
       "providers": {
         "HOLDED": "Holded",
         "GRAVITY_FORMS": "Gravity Forms",
-        "BOOKING_MAIL": "Correo de notificaciones"
+        "BOOKING_MAIL": "Correo de notificaciones",
+        "CALENDAR_ICS": "Calendario ICS"
       },
       "choose": "Elige una opción"
     }

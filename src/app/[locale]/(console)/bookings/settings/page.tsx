@@ -13,6 +13,7 @@ import {
 } from "@/modules/banking/services/accounts";
 import {
   saveBookingMailSettings,
+  saveCalendarSettings,
   saveGravityFormsSettings,
   saveHoldedSettings,
   testIntegration,
@@ -30,6 +31,7 @@ import {
   readIntegrationConfig,
 } from "@/modules/booking/services/settings";
 import { getLoginPathForLocale, parseLoginLocale } from "@/modules/login/schema";
+import { CalendarSettingsForm } from "@/modules/calendar/components/calendar-settings-form";
 
 interface SettingsPageProps {
   params: Promise<{ locale: string }>;
@@ -81,7 +83,7 @@ export default async function BookingSettingsPage({ params }: SettingsPageProps)
   ]);
 
   const statusFor = (
-    provider: "HOLDED" | "GRAVITY_FORMS" | "BOOKING_MAIL",
+    provider: "HOLDED" | "GRAVITY_FORMS" | "BOOKING_MAIL" | "CALENDAR_ICS",
   ) =>
     statuses.find((status) => status.provider === provider);
 
@@ -107,6 +109,12 @@ export default async function BookingSettingsPage({ params }: SettingsPageProps)
           </li>
         ))}
       </ul>
+
+      <CalendarSettingsForm
+        action={saveCalendarSettings}
+        onTest={testIntegration.bind(null, "CALENDAR_ICS")}
+        configured={statusFor("CALENDAR_ICS")?.configured ?? false}
+      />
 
       <HoldedSettingsForm
         action={saveHoldedSettings}
