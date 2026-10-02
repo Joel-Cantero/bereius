@@ -6,7 +6,12 @@
 - Administrators configure, replace and test an HTTPS ICS URL in Integrations without redeployment.
 - The source remains authoritative; viewing it never changes bookings or WordPress availability.
 - Honor exclusive DTEND, all-day events, time zones and bounded recurrence expansion.
+- Render multi-day events as continuous weekly bands, joining contiguous/overlapping all-day entries with identical non-empty descriptions for display only. Keep separate stays and timed entries distinct.
+- Center the calendar title, month and controls in a responsive width-limited layout; retain the mobile agenda and avoid horizontal overflow.
 - Include English, Spanish and Catalan navigation, feedback, empty and failure states.
+- Operators and administrators can manually link a CONFIRMED booking to an original ICS event, choosing suggestions by stay dates and group name. Never link automatically by description.
+- Persist source-scoped UID/occurrence identity and the linked event snapshot. Reject duplicate ownership, allow audited unlinking, and flag changed/missing events or replaced sources for review without changing booking/payment state.
+- Linked calendar bands and the mobile agenda provide access to the booking. Preserve every underlying link when several source events are grouped visually.
 
 ## Security & Privacy Implications
 

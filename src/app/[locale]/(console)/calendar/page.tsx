@@ -7,7 +7,7 @@ import { noIndexMetadata } from "@/lib/seo";
 import { AuthorizationError, requireBookingActor } from "@/modules/booking/authorization";
 import { CalendarMonth } from "@/modules/calendar/components/calendar-month";
 import { madridDate, monthSchema, monthWindow } from "@/modules/calendar/dates";
-import { readCalendar } from "@/modules/calendar/services/calendar";
+import { readCalendarWithBookings } from "@/modules/calendar/services/links";
 import { getLoginPathForLocale, parseLoginLocale } from "@/modules/login/schema";
 
 interface Props {
@@ -37,16 +37,16 @@ export default async function CalendarPage({ params, searchParams }: Props) {
   const month = parsed.success ? parsed.data : today.slice(0, 7);
   const window = monthWindow(month);
   const from = new Date(window.start.getTime() - 86400000);
-  const result = await readCalendar(from, window.end);
+  const result = await readCalendarWithBookings(from, window.end);
 
   return (
-    <main className="flex min-w-0 flex-col gap-6">
+    <main className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-6 px-3 py-4 sm:px-6 sm:py-6">
       <h1 className="text-2xl font-semibold">{t("title")}</h1>
       {!parsed.success ? <Alert variant="destructive"><AlertDescription>{t("invalidMonth")}</AlertDescription></Alert> : null}
       {result.status !== "ok" ? (
         <Alert variant={result.status === "unavailable" ? "destructive" : "default"}><AlertDescription>{t(result.status)} {actor.role === "ADMINISTRATOR" ? <Link href="/bookings/settings" className="underline">{t("integrations")}</Link> : null}</AlertDescription></Alert>
       ) : null}
-      <CalendarMonth month={month} today={today} locale={locale} entries={result.entries} labels={{ previous: t("previous"), next: t("next"), today: t("today"), unnamed: t("unnamed"), allDay: t("allDay"), empty: result.status === "ok" ? t("empty") : "", agenda: t("agenda") }} />
+      <CalendarMonth month={month} today={today} locale={locale} entries={result.entries} labels={{ previous: t("previous"), next: t("next"), today: t("today"), unnamed: t("unnamed"), allDay: t("allDay"), empty: result.status === "ok" ? t("empty") : "", agenda: t("agenda"), confirmed: t("bookingLinks.confirmed"), review: t("bookingLinks.needsReview") }} />
     </main>
   );
 }

@@ -183,6 +183,11 @@
     "description": "Self-hosted, Dockerized Next.js starter"
   },
   "Calendar": {
+    "bookingLinks": {
+      "title": "Calendar link", "event": "Event", "choose": "Select an event", "unnamed": "No description", "confirm": "I confirm this link", "link": "Link to calendar", "unlink": "Unlink", "noCandidates": "No available events were found for these dates.", "openCalendar": "Open calendar", "confirmed": "Confirmed booking", "needsReview": "Needs review", "history": "Link history", "linked": "Linked", "unlinked": "Unlinked", "operator": "Operator",
+      "review": { "changed": "Needs review: the event or booking has changed.", "missing": "Needs review: the linked event no longer appears in the calendar.", "source_changed": "Needs review: the calendar source has changed.", "unverified": "The link could not be verified. The booking is preserved." },
+      "errors": { "unauthenticated": "Please sign in.", "forbidden": "You do not have permission to perform this action.", "invalid": "Select an event and confirm the link.", "state_changed": "The booking, link or event has changed. Refresh the page and try again.", "conflict": "The booking or event is already linked. Refresh the page.", "unavailable": "The calendar is currently unavailable.", "not_configured": "The calendar has not been configured yet.", "unknown": "The link could not be completed." }
+    },
     "title": "Calendar",
     "description": "Booking calendar",
     "integrationTitle": "ICS calendar",

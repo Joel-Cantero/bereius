@@ -26,3 +26,20 @@ export function occursOn(entry: CalendarEntry, day: string): boolean {
   const end = entry.allDay ? entry.end : madridDate(new Date(new Date(entry.end).getTime() - 1));
   return start <= day && (entry.allDay ? end > day : end >= day);
 }
+
+export function groupCalendarEntries(entries: CalendarEntry[]): CalendarEntry[] {
+  const allDay = entries.filter((entry) => entry.allDay).toSorted((first, second) =>
+    first.title.localeCompare(second.title) || first.start.localeCompare(second.start) || first.end.localeCompare(second.end));
+  const grouped: CalendarEntry[] = [];
+  for (const entry of allDay) {
+    const previous = grouped.at(-1);
+    if (entry.title && previous?.title === entry.title && entry.start <= previous.end) {
+      if (entry.end > previous.end) previous.end = entry.end;
+      if (entry.bookings?.length) previous.bookings = [...new Map([...(previous.bookings ?? []), ...entry.bookings].map((booking) => [booking.id, booking])).values()];
+    } else {
+      grouped.push({ ...entry });
+    }
+  }
+  return [...grouped, ...entries.filter((entry) => !entry.allDay)].toSorted((first, second) =>
+    first.start.localeCompare(second.start) || first.end.localeCompare(second.end) || first.id.localeCompare(second.id));
+}

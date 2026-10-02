@@ -183,6 +183,11 @@
     "description": "Plantilla de Next.js autoalojada y dockerizada"
   },
   "Calendar": {
+    "bookingLinks": {
+      "title": "Vinculación al calendario", "event": "Evento", "choose": "Selecciona un evento", "unnamed": "Sin descripción", "confirm": "Confirmo esta vinculación", "link": "Vincular al calendario", "unlink": "Desvincular", "noCandidates": "No hay eventos disponibles para estas fechas.", "openCalendar": "Abrir el calendario", "confirmed": "Reserva confirmada", "needsReview": "Revisar", "history": "Historial de vinculación", "linked": "Vinculado", "unlinked": "Desvinculado", "operator": "Operador",
+      "review": { "changed": "Revisar: el evento o la reserva han cambiado.", "missing": "Revisar: el evento vinculado ya no aparece en el calendario.", "source_changed": "Revisar: la fuente del calendario ha cambiado.", "unverified": "No se ha podido verificar el vínculo. Se conserva la reserva." },
+      "errors": { "unauthenticated": "Debes iniciar sesión.", "forbidden": "No tienes permiso para realizar esta acción.", "invalid": "Selecciona un evento y confirma la vinculación.", "state_changed": "La reserva, el vínculo o el evento han cambiado. Actualiza la página e inténtalo de nuevo.", "conflict": "La reserva o el evento ya tienen un vínculo. Actualiza la página.", "unavailable": "No se puede consultar el calendario en este momento.", "not_configured": "El calendario aún no está configurado.", "unknown": "No se ha podido completar la vinculación." }
+    },
     "title": "Calendario",
     "description": "Calendario de reservas",
     "integrationTitle": "Calendario ICS",

@@ -286,6 +286,23 @@ const server = createServer(async (request, response) => {
     const pathname = requestUrl.pathname;
     if (await handleControl(request, response, pathname)) return;
 
+    if (request.method === "GET" && pathname === "/calendar.ics") {
+      const entries = [
+        { id: "weekend-friday", title: "Synthetic weekend", start: "20261002", end: "20261003" },
+        { id: "weekend-saturday", title: "Synthetic weekend", start: "20261003", end: "20261004" },
+        { id: "weekend-sunday", title: "Synthetic weekend", start: "20261004", end: "20261005" },
+        { id: "overlap", title: "Synthetic overlapping stay", start: "20261003", end: "20261004" },
+        { id: "boundary", title: "Synthetic month boundary", start: "20261030", end: "20261103" },
+      ];
+      response.setHeader("content-type", "text/calendar");
+      response.end([
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Bereius//Calendar fixture//EN",
+        ...entries.flatMap((entry) => ["BEGIN:VEVENT", `UID:${entry.id}`, `SUMMARY:${entry.title}`, `DTSTART;VALUE=DATE:${entry.start}`, `DTEND;VALUE=DATE:${entry.end}`, "END:VEVENT"]),
+        "END:VCALENDAR", "",
+      ].join("\r\n"));
+      return;
+    }
+
     const providerRequest = resolveProviderRequest(requestUrl);
     if (!providerRequest) {
       json(response, 404, { status: "not_found" });

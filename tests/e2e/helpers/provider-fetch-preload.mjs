@@ -1,3 +1,7 @@
+import https from "node:https";
+import { request as httpRequest } from "node:http";
+import { syncBuiltinESMExports } from "node:module";
+
 const fixtureValue = process.env.E2E_PROVIDER_HTTP_URL;
 if (!fixtureValue) {
   throw new Error("E2E_PROVIDER_HTTP_URL is required by the provider fetch preload");
@@ -18,6 +22,17 @@ const fixturePathByLogicalUrl = new Map([
   ["https://api.mailjet.com/v3.1/send", "/provider/mailjet/send"],
 ]);
 const nativeFetch = globalThis.fetch.bind(globalThis);
+
+const nativeHttpsRequest = https.request.bind(https);
+https.request = (...args) => {
+  const input = args[0];
+  const logicalUrl = typeof input === "string" || input instanceof URL ? new URL(input) : null;
+  if (logicalUrl?.origin === "https://calendar.example.test" && logicalUrl.pathname === "/feed.ics") {
+    return httpRequest(new URL("/calendar.ics", fixtureUrl), { ...args[1], lookup: undefined }, args[2]);
+  }
+  return nativeHttpsRequest(...args);
+};
+syncBuiltinESMExports();
 
 function holdedFixturePath(logicalUrl) {
   const url = new URL(logicalUrl);
