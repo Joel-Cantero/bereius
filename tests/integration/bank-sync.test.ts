@@ -36,6 +36,7 @@ import {
 } from "@/modules/banking/schema";
 import { saveTreasuryAccount } from "@/modules/banking/services/accounts";
 import {
+  claimBankSyncRun,
   claimNextBankSync,
   enqueueBankSync,
   enqueueDueBankSyncRuns,
@@ -695,10 +696,10 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
       await expect(
         db.bankMovement.findUniqueOrThrow({ where: { id: historical.id } }),
       ).resolves.toMatchObject({ accountId: first.id });
-      if (!saved.runId) throw new Error("Expected a first synchronization run");
+      expect(saved.runId).toBeNull();
       await expect(
-        db.bankSyncRun.findUniqueOrThrow({ where: { id: saved.runId } }),
-      ).resolves.toMatchObject({ accountId: saved.accountId, status: "QUEUED" });
+        db.bankSyncRun.count({ where: { accountId: saved.accountId } }),
+      ).resolves.toBe(0);
     });
 
     it("commits every advertised page and exact run counters", async () => {
@@ -1149,14 +1150,26 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
     it.each(["SCHEDULED", "EXPIRY"] as const)("ignores a legacy queued %s scan and only claims a manual refresh", async (trigger) => {
       const scope = bankingScope("bank-manual-only");
       const accountData = scope.treasuryAccount();
-      const account = await db.holdedTreasuryAccount.create({ data: accountData });
+      await db.holdedTreasuryAccount.create({ data: accountData });
       const now = new Date("2026-10-01T12:00:00.000Z");
-      await enqueueBankSync({ accountId: account.id, trigger, now });
+      await db.bankSyncRun.create({ data: scope.run(accountData, { trigger }) });
       expect(await claimNextBankSync(now)).toBeNull();
       const user = await db.user.create({ data: scope.user() });
       const manual = await requestManualBankSync({ requestedById: user.id, now });
       expect(await claimNextBankSync(now)).toMatchObject({ runId: manual.runId });
       expect(await db.bankSyncRun.findUniqueOrThrow({ where: { id: manual.runId } })).toMatchObject({ trigger: "MANUAL" });
+    });
+
+    it.each(["SCHEDULED", "EXPIRY"] as const)("rejects new %s scans and direct claims of legacy work", async (trigger) => {
+      const scope = bankingScope("bank-reject-automatic");
+      const accountData = scope.treasuryAccount();
+      const account = await db.holdedTreasuryAccount.create({ data: accountData });
+      const now = new Date("2026-09-16T12:00:00.000Z");
+      await expect(enqueueBankSync({ accountId: account.id, trigger, now })).rejects.toMatchObject({ code: "invalid" });
+      expect(await db.bankSyncRun.count({ where: { accountId: account.id } })).toBe(0);
+      const legacy = await db.bankSyncRun.create({ data: scope.run(accountData, { trigger }) });
+      await expect(claimBankSyncRun(legacy.id, now)).resolves.toBeNull();
+      expect(await db.bankSyncRun.findUniqueOrThrow({ where: { id: legacy.id } })).toMatchObject({ status: "QUEUED", attemptCount: 0 });
     });
 
     it("returns one active manual run and enforces a one-minute database cooldown", async () => {
@@ -1435,7 +1448,7 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
       ]);
     });
 
-    it("creates one due run and advances the schedule by six hours", async () => {
+    it("never enqueues a due automatic scan or advances its legacy schedule", async () => {
       const scope = bankingScope("bank-due");
       const due = new Date("2026-09-16T12:00:00.000Z");
       const accountData = scope.treasuryAccount({
@@ -1443,28 +1456,22 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
       });
       const account = await db.holdedTreasuryAccount.create({ data: accountData });
 
-      await expect(enqueueDueBankSyncRuns(due)).resolves.toBe(1);
+      await expect(enqueueDueBankSyncRuns(due)).resolves.toBe(0);
       await expect(enqueueDueBankSyncRuns(due)).resolves.toBe(0);
 
       await expect(
         db.holdedTreasuryAccount.findUniqueOrThrow({ where: { id: account.id } }),
       ).resolves.toMatchObject({
-        nextScheduledAt: new Date("2026-09-16T18:00:00.000Z"),
+        nextScheduledAt: accountData.nextScheduledAt,
       });
       await expect(
         db.bankSyncRun.findMany({ where: { accountId: account.id } }),
-      ).resolves.toMatchObject([
-        {
-          trigger: "SCHEDULED",
-          status: "QUEUED",
-          windowStartDate: account.importStartDate,
-        },
-      ]);
+      ).resolves.toEqual([]);
       expect(providerMocks.listTreasuryAccounts).not.toHaveBeenCalled();
     });
 
     it.each(["SUCCEEDED", "PARTIAL"] as const)(
-      "uses a 14-day overlap for a due run after recent %s full exhaustion",
+      "does not enqueue a periodic scan after historic %s full exhaustion",
       async (status) => {
         const scope = bankingScope("bank-due-overlap");
         const due = new Date("2026-09-16T12:00:00.000Z");
@@ -1484,17 +1491,14 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
           }),
         });
 
-        await expect(enqueueDueBankSyncRuns(due)).resolves.toBe(1);
+        await expect(enqueueDueBankSyncRuns(due)).resolves.toBe(0);
 
         await expect(
-          db.bankSyncRun.findFirstOrThrow({
+          db.bankSyncRun.findFirst({
             where: { accountId: account.id, status: "QUEUED" },
             select: { trigger: true, windowStartDate: true },
           }),
-        ).resolves.toEqual({
-          trigger: "SCHEDULED",
-          windowStartDate: new Date("2026-09-02T00:00:00.000Z"),
-        });
+        ).resolves.toBeNull();
       },
     );
 

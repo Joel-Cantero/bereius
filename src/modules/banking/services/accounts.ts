@@ -59,7 +59,7 @@ export function defaultBankImportStartDate(now = new Date()): string {
 
 async function fetchTreasuryAccounts(options: { fresh?: boolean } = {}) {
   const { secret } = await resolveIntegration("HOLDED");
-  return createHoldedClient(secret).listTreasuryAccounts(options);
+  return createHoldedClient(secret, undefined, "banking.accounts").listTreasuryAccounts(options);
 }
 
 function eligibleAccounts(accounts: Awaited<ReturnType<typeof fetchTreasuryAccounts>>) {
@@ -186,17 +186,6 @@ export async function saveTreasuryAccount(command: {
           select: { id: true, importStartDate: true },
         });
 
-    if (previousRun) return { accountId: account.id, runId: null };
-
-    const run = await transaction.bankSyncRun.create({
-      data: {
-        accountId: account.id,
-        trigger: "SCHEDULED",
-        windowStartDate: account.importStartDate,
-        nextAttemptAt: now,
-      },
-      select: { id: true },
-    });
-    return { accountId: account.id, runId: run.id };
+    return { accountId: account.id, runId: null };
   });
 }

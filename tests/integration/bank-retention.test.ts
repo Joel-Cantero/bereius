@@ -330,7 +330,7 @@ describe.skipIf(!runIntegrationTests)("bank retention", () => {
     }));
     const enqueued = await enqueueBankSync({
       accountId: context.account.id,
-      trigger: "SCHEDULED",
+      trigger: "MANUAL",
       now: new Date("2026-09-16T13:00:00.000Z"),
     });
     const lease = await claimBankSyncRun(

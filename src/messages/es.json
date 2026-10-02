@@ -1165,7 +1165,7 @@
         "importStartDateLocked": "Esta fecha es fija porque ya se ha iniciado una importación.",
         "save": "Guardar cuenta bancaria",
         "saving": "Guardando…",
-        "saved": "Cuenta bancaria guardada y sincronización en cola.",
+        "saved": "Cuenta bancaria guardada.",
         "availability": {
           "not_configured": "Guarda la clave de API de Holded antes de elegir una cuenta bancaria.",
           "unauthorized": "Holded ha rechazado la clave o le faltan permisos de lectura de tesorería.",

@@ -21,12 +21,30 @@ export interface ExpirySummary {
 /** Expires due bookings only after a fresh, complete bank scan. */
 export async function expireUnpaidBookings(
   now: Date = new Date(),
+  completedBankSyncRunId?: string,
 ): Promise<ExpirySummary> {
-  const expiryAttemptStartedAt = now;
+  const completedRun = completedBankSyncRunId
+    ? await db.bankSyncRun.findFirst({
+        where: {
+          id: completedBankSyncRunId,
+          trigger: "MANUAL",
+          status: "SUCCEEDED",
+          startedAt: { not: null, lte: now },
+          exhaustedAt: { not: null, lte: now },
+          incidentCount: 0,
+          account: { active: true },
+        },
+        select: { startedAt: true },
+      })
+    : null;
+  if (completedBankSyncRunId && !completedRun?.startedAt) {
+    return { examined: 0, expired: 0 };
+  }
+  const expiryAttemptStartedAt = completedRun?.startedAt ?? now;
   const due = await db.bookingRequest.findMany({
     where: {
       state: "AWAITING_PAYMENT",
-      paymentDueAt: { lte: now },
+      paymentDueAt: { lte: expiryAttemptStartedAt },
     },
     select: { id: true },
   });
@@ -36,7 +54,7 @@ export async function expireUnpaidBookings(
 
   const evidence = await ensureFreshBankEvidenceForExpiry(
     expiryAttemptStartedAt,
-    { clock: () => now },
+    { clock: () => now, runId: completedBankSyncRunId },
   );
   if (!evidence.ready) {
     logger.warn(
@@ -54,9 +72,11 @@ export async function expireUnpaidBookings(
     const verifiedEvidence = await transaction.bankSyncRun.findFirst({
       where: {
         id: evidence.runId,
+        trigger: "MANUAL",
         status: "SUCCEEDED",
         startedAt: { gte: expiryAttemptStartedAt },
-        exhaustedAt: { not: null },
+        exhaustedAt: { not: null, lte: now },
+        incidentCount: 0,
         account: { active: true },
       },
       select: { id: true },
@@ -68,7 +88,7 @@ export async function expireUnpaidBookings(
         where: {
           id: candidate.id,
           state: "AWAITING_PAYMENT",
-          paymentDueAt: { lte: now },
+          paymentDueAt: { lte: expiryAttemptStartedAt },
           bankReconciliationProposals: {
             none: { status: "PENDING" },
           },

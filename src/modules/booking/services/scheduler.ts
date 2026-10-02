@@ -44,7 +44,7 @@ async function runBankingSweep() {
   if (!lease) return { processed: false };
 
   await processBankSync(lease);
-  await expireUnpaidBookings(now);
+  await expireUnpaidBookings(new Date(), lease.runId);
   return { processed: true, runId: lease.runId };
 }
 

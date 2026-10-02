@@ -19,10 +19,7 @@ import {
   BANK_SYNC_MAX_RETRY_MS,
   BANK_SYNC_NONTERMINAL_STATUSES,
 } from "@/modules/banking/schema";
-import {
-  fullBankSyncWindowStart,
-  scheduledBankSyncWindowStart,
-} from "@/modules/banking/synchronization-window";
+import { fullBankSyncWindowStart } from "@/modules/banking/synchronization-window";
 import { parseHoldedBankMovement } from "@/modules/banking/services/movements";
 import { reconcileBankMovements } from "@/modules/banking/services/reconciliation";
 import { resolveIntegration } from "@/modules/booking/services/settings";
@@ -220,6 +217,7 @@ export async function enqueueBankSync(input: {
   resumedFromRunId?: string | null;
   now?: Date;
 }): Promise<{ runId: string; created: boolean }> {
+  if (input.trigger !== "MANUAL") throw new BankSyncRequestError("invalid");
   const now = input.now ?? new Date();
 
   return db.$transaction(async (transaction) => {
@@ -362,6 +360,7 @@ export async function claimBankSyncRun(
     const candidate = await db.bankSyncRun.findFirst({
       where: {
         id: runId,
+        trigger: "MANUAL",
         OR: [
           {
             status: { in: ["QUEUED", "RETRYING"] },
@@ -483,7 +482,7 @@ export async function processBankSync(
   } = {},
 ): Promise<void> {
   const provider = options.provider ??
-    createHoldedClient((await resolveIntegration("HOLDED")).secret);
+    createHoldedClient((await resolveIntegration("HOLDED")).secret, undefined, "banking.synchronization");
   const now = options.now ?? (() => new Date());
   const seenCursors = new Set<string>();
   let cursor = lease.nextCursor ?? undefined;
@@ -704,55 +703,6 @@ export async function processBankSync(
 }
 
 export async function enqueueDueBankSyncRuns(now = new Date()): Promise<number> {
-  return db.$transaction(async (transaction) => {
-    await transaction.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('bank-sync-due-runs'))`;
-    const account = await transaction.holdedTreasuryAccount.findFirst({
-      where: { active: true, nextScheduledAt: { lte: now } },
-      select: {
-        id: true,
-        importStartDate: true,
-        retentionFloorDate: true,
-      },
-    });
-    if (!account) return 0;
-
-    const fullWindowStart = fullBankSyncWindowStart(account);
-    const latestFullScan = await transaction.bankSyncRun.findFirst({
-      where: {
-        accountId: account.id,
-        status: { in: ["SUCCEEDED", "PARTIAL"] },
-        exhaustedAt: { not: null, lte: now },
-        windowStartDate: { lte: fullWindowStart },
-      },
-      orderBy: [{ exhaustedAt: "desc" }, { id: "desc" }],
-      select: { exhaustedAt: true },
-    });
-
-    await transaction.holdedTreasuryAccount.update({
-      where: { id: account.id },
-      data: { nextScheduledAt: new Date(now.getTime() + BANK_SYNC_INTERVAL_MS) },
-    });
-    const existing = await transaction.bankSyncRun.findFirst({
-      where: {
-        accountId: account.id,
-        status: { in: [...BANK_SYNC_NONTERMINAL_STATUSES] },
-      },
-      select: { id: true },
-    });
-    if (existing) return 0;
-
-    await transaction.bankSyncRun.create({
-      data: {
-        accountId: account.id,
-        trigger: "SCHEDULED",
-        windowStartDate: scheduledBankSyncWindowStart({
-          ...account,
-          latestFullScanAt: latestFullScan?.exhaustedAt ?? null,
-          now,
-        }),
-        nextAttemptAt: now,
-      },
-    });
-    return 1;
-  });
+  void now;
+  return 0;
 }

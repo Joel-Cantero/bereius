@@ -1165,7 +1165,7 @@
         "importStartDateLocked": "Aquesta data és fixa perquè ja s'ha iniciat una importació.",
         "save": "Desa el compte bancari",
         "saving": "Desant…",
-        "saved": "Compte bancari desat i sincronització en cua.",
+        "saved": "Compte bancari desat.",
         "availability": {
           "not_configured": "Desa la clau d'API de Holded abans de triar un compte bancari.",
           "unauthorized": "Holded ha rebutjat la clau o li manquen permisos de lectura de tresoreria.",

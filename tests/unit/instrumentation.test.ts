@@ -189,6 +189,7 @@ describe("booking worker scheduler", () => {
 
     expect(schedulerMocks.enqueueDueBankSyncRuns).not.toHaveBeenCalled();
     expect(schedulerMocks.processBankSync).toHaveBeenCalledWith(lease);
+    expect(schedulerMocks.expireUnpaidBookings).toHaveBeenCalledWith(expect.any(Date), lease.runId);
     expect(schedulerMocks.runBankRetention).toHaveBeenCalledOnce();
     await scheduler.stop();
   });

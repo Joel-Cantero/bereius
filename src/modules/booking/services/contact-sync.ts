@@ -119,7 +119,7 @@ function compare(
 async function connect(): Promise<HoldedClient | null> {
   try {
     const { secret } = await resolveIntegration("HOLDED");
-    return createHoldedClient(secret);
+    return createHoldedClient(secret, undefined, "booking.contacts");
   } catch {
     return null;
   }
@@ -177,7 +177,7 @@ export async function createCustomerContact(bookingRequestId: string): Promise<v
   const { customerId, customer } = await loadCustomer(bookingRequestId);
   const { secret } = await resolveIntegration("HOLDED");
 
-  const { id } = await createHoldedClient(secret).createContact(toInput(customer));
+  const { id } = await createHoldedClient(secret, undefined, "booking.contacts").createContact(toInput(customer));
   await db.customer.update({ where: { id: customerId }, data: { holdedContactId: id } });
 
   logger.info(
@@ -189,7 +189,7 @@ export async function createCustomerContact(bookingRequestId: string): Promise<v
 export async function updateCustomerContact(bookingRequestId: string): Promise<void> {
   const { customerId, customer } = await loadCustomer(bookingRequestId);
   const { secret } = await resolveIntegration("HOLDED");
-  const client = createHoldedClient(secret);
+  const client = createHoldedClient(secret, undefined, "booking.contacts");
 
   const contact = await client.findContactByTaxId(customer.taxId);
   if (!contact) throw new ContactSyncError("not_in_holded");
@@ -217,7 +217,7 @@ export async function linkExistingEstimate(
 ): Promise<void> {
   const { customer, state } = await loadCustomer(bookingRequestId);
   const { config, secret } = await resolveIntegration("HOLDED");
-  const client = createHoldedClient(secret);
+  const client = createHoldedClient(secret, undefined, "booking.contacts");
 
   if (!config.depositServiceId) {
     throw new ContactSyncError("incomplete_configuration");

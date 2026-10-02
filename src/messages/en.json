@@ -1165,7 +1165,7 @@
         "importStartDateLocked": "This date is fixed because an import has already started.",
         "save": "Save bank account",
         "saving": "Saving…",
-        "saved": "Bank account saved and synchronization queued.",
+        "saved": "Bank account saved.",
         "availability": {
           "not_configured": "Save the Holded API key before choosing a bank account.",
           "unauthorized": "Holded refused the key or it lacks treasury read permission.",

@@ -17,6 +17,7 @@ export type BankExpiryEvidence =
 
 interface ExpiryEvidenceOptions {
   clock?: () => Date;
+  runId?: string;
 }
 
 async function inspectRun(
@@ -61,7 +62,6 @@ export async function ensureFreshBankEvidenceForExpiry(
   expiryAttemptStartedAt: Date,
   options: ExpiryEvidenceOptions = {},
 ): Promise<BankExpiryEvidence> {
-  void options;
   const account = await db.holdedTreasuryAccount.findFirst({
     where: { active: true },
     select: { id: true },
@@ -69,7 +69,7 @@ export async function ensureFreshBankEvidenceForExpiry(
   if (!account) return { ready: false, reason: "not_configured" };
 
   const latestRun = await db.bankSyncRun.findFirst({
-    where: { accountId: account.id, trigger: "MANUAL" },
+    where: { accountId: account.id, trigger: "MANUAL", id: options.runId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: { id: true },
   });

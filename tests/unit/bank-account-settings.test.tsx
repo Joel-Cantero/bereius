@@ -115,6 +115,17 @@ describe("treasury account settings", () => {
     );
   });
 
+  it("saves a new account without enqueuing an initial import", async () => {
+    const account = createHoldedTreasuryFixtureScope().account();
+    mocks.listTreasuryAccounts.mockResolvedValue([account]);
+    await expect(saveTreasuryAccount({
+      holdedAccountId: account.id,
+      importStartDate: "2026-06-18",
+      configuredById: "administrator-1",
+    })).resolves.toEqual({ accountId: "local-account-1", runId: null });
+    expect(mocks.transaction.bankSyncRun.create).not.toHaveBeenCalled();
+  });
+
   it("fetches fresh options with the stored credential and returns only eligible EUR accounts", async () => {
     const fixtures = createHoldedTreasuryFixtureScope();
     const eligible = fixtures.account({ name: "Eligible account" });
@@ -136,7 +147,7 @@ describe("treasury account settings", () => {
     expect(mocks.resolveIntegration).toHaveBeenCalledTimes(2);
     expect(mocks.resolveIntegration).toHaveBeenCalledWith("HOLDED");
     expect(mocks.createHoldedClient).toHaveBeenCalledTimes(2);
-    expect(mocks.createHoldedClient).toHaveBeenCalledWith("stored-secret");
+    expect(mocks.createHoldedClient).toHaveBeenCalledWith("stored-secret", undefined, "banking.accounts");
     expect(mocks.listTreasuryAccounts).toHaveBeenCalledTimes(2);
   });
 

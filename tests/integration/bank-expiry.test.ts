@@ -19,6 +19,7 @@ vi.mock("@/modules/booking/services/settings", () => ({
 }));
 
 import { db } from "@/lib/db";
+import { HoldedError } from "@/lib/holded/client";
 import { BANK_SYNC_LEASE_MS } from "@/modules/banking/schema";
 import { claimNextBankSync, enqueueBankSync, processBankSync } from "@/modules/banking/services/synchronization";
 import { expireUnpaidBookings } from "@/modules/booking/services/expiry";
@@ -243,6 +244,43 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
     await expireUnpaidBookings(attemptStartedAt);
 
     await expect(bookingState(booking.id)).resolves.toEqual({ state: "EXPIRED" });
+    expect(providerMocks.listBankMovements).not.toHaveBeenCalled();
+  });
+
+  it("evaluates a successfully retried manual scan without expiring bookings due after its start", async () => {
+    const { scope, booking, account } = await dueBooking("bank-expiry-manual-retry");
+    if (!account) throw new Error("Expected a treasury account");
+    const laterCustomer = await db.customer.create({ data: scope.customer() });
+    const laterBooking = await db.bookingRequest.create({ data: {
+      ...scope.booking(laterCustomer),
+      paymentDueAt: new Date(attemptStartedAt.getTime() + 30 * 60_000),
+    } });
+    const completedAt = new Date(attemptStartedAt.getTime() + 60 * 60_000);
+    const requested = await enqueueBankSync({ accountId: account.id, trigger: "MANUAL", now: attemptStartedAt });
+    const firstLease = await claimNextBankSync(attemptStartedAt);
+    if (!firstLease) throw new Error("Expected first manual lease");
+    providerMocks.listBankMovements.mockRejectedValueOnce(new HoldedError("unavailable", "Synthetic outage"));
+    await expect(processBankSync(firstLease, { now: () => attemptStartedAt })).rejects.toBeInstanceOf(HoldedError);
+    await expireUnpaidBookings(attemptStartedAt, requested.runId);
+    expect(await bookingState(booking.id)).toEqual({ state: "AWAITING_PAYMENT" });
+    const retryLease = await claimNextBankSync(completedAt);
+    if (!retryLease) throw new Error("Expected manual retry lease");
+    await processBankSync(retryLease, { now: () => completedAt });
+    await expireUnpaidBookings(completedAt, requested.runId);
+    expect(await bookingState(booking.id)).toEqual({ state: "EXPIRED" });
+    expect(await bookingState(laterBooking.id)).toEqual({ state: "AWAITING_PAYMENT" });
+    expect(await db.bankSyncRun.count({ where: { accountId: account.id } })).toBe(1);
+    expect(providerMocks.listBankMovements).toHaveBeenCalledTimes(2);
+  });
+
+  it("cannot authorize expiry using a completed legacy scheduled scan", async () => {
+    const { scope, booking, accountData } = await dueBooking("bank-expiry-legacy-success");
+    const legacy = await db.bankSyncRun.create({ data: {
+      ...scope.run(accountData, { trigger: "SCHEDULED", status: "SUCCEEDED", exhaustedAt: attemptStartedAt }),
+      startedAt: attemptStartedAt,
+    } });
+    await expireUnpaidBookings(attemptStartedAt, legacy.id);
+    expect(await bookingState(booking.id)).toEqual({ state: "AWAITING_PAYMENT" });
     expect(providerMocks.listBankMovements).not.toHaveBeenCalled();
   });
 

@@ -217,7 +217,7 @@ export async function testIntegration(
       ).verify();
     } else if (validated === "HOLDED") {
       const { secret } = await resolveIntegration("HOLDED");
-      await createHoldedClient(secret).ping();
+      await createHoldedClient(secret, undefined, "booking.integration-test").ping();
     } else {
       const { config, secret } = await resolveIntegration("GRAVITY_FORMS");
       await createGravityFormsClient({
