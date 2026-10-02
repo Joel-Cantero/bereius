@@ -33,6 +33,8 @@ import { inspectCustomerContact } from "@/modules/booking/services/contact-sync"
 import { estimateNamesStay } from "@/modules/booking/services/contracts";
 import { getBookingDetail } from "@/modules/booking/services/queries";
 import { getLoginPathForLocale, parseLoginLocale } from "@/modules/login/schema";
+import { BookingCalendarPanel } from "@/modules/calendar/components/booking-calendar-panel";
+import { getBookingCalendar } from "@/modules/calendar/services/links";
 
 interface BookingDetailPageProps {
   params: Promise<{ locale: string; id: string }>;
@@ -65,6 +67,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
 
   const booking = await getBookingDetail(id);
   if (!booking) notFound();
+  const calendar = await getBookingCalendar(booking.id);
 
   const t = await getTranslations({ locale, namespace: "Bookings" });
   const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" });
@@ -154,6 +157,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           {t(`board.${booking.boardType}`)}
         </p>
       </section>
+
+      {calendar ? <BookingCalendarPanel bookingRequestId={booking.id} locale={locale} canLink={booking.state === "CONFIRMED"} view={calendar} /> : null}
 
       <section aria-labelledby="customer-heading" className="flex flex-col gap-1">
         <h2 id="customer-heading" className="text-lg font-medium">

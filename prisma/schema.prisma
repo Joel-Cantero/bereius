@@ -48,6 +48,8 @@ model User {
   treasuryAccountsConfigured HoldedTreasuryAccount[]      @relation("TreasuryAccountsConfigured")
   bankSyncRunsRequested      BankSyncRun[]                @relation("BankSyncRunsRequested")
   bankProposalsDecided       BankReconciliationProposal[] @relation("BankProposalsDecided")
+  calendarBookingsLinked     CalendarBookingLink[]        @relation("CalendarBookingsLinked")
+  calendarBookingAuditEvents CalendarBookingAuditEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -290,11 +292,56 @@ model BookingRequest {
   auditEvents                 BookingAuditEvent[]
   operationEvents             BookingOperationEvent[]
   bankReconciliationProposals BankReconciliationProposal[]
+  calendarLink                CalendarBookingLink?
+  calendarAuditEvents         CalendarBookingAuditEvent[]
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
 
   @@index([state, createdAt])
   @@index([customerId])
+}
+
+model CalendarBookingLink {
+  id               String   @id @default(cuid())
+  bookingRequestId String   @unique
+  sourceKey        String   @db.VarChar(64)
+  eventKey         String   @db.VarChar(64)
+  eventUid         String   @db.Text
+  occurrenceId     String   @db.Text
+  eventTitle       String   @db.Text
+  eventStart       String
+  eventEnd         String
+  allDay           Boolean
+  bookingStartDate DateTime @db.Date
+  bookingEndDate   DateTime @db.Date
+  linkedById       String?
+  createdAt        DateTime @default(now())
+
+  bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+  linkedBy       User? @relation("CalendarBookingsLinked", fields: [linkedById], references: [id], onDelete: SetNull)
+
+  @@unique([sourceKey, eventKey])
+}
+
+enum CalendarBookingLinkAction {
+  LINKED
+  UNLINKED
+}
+
+model CalendarBookingAuditEvent {
+  id               String @id @default(cuid())
+  bookingRequestId String
+  actorUserId      String?
+  action           CalendarBookingLinkAction
+  eventTitle       String @db.Text
+  sourceKey        String @db.VarChar(64)
+  eventKey         String @db.VarChar(64)
+  createdAt        DateTime @default(now())
+
+  bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+  actor          User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([bookingRequestId, createdAt])
 }
 
 model HoldedDocument {

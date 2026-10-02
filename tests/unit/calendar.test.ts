@@ -8,6 +8,26 @@ const wrap = (event: string) => `BEGIN:VCALENDAR\r\nVERSION:2.0\r\n${event}\r\nE
 const event = "BEGIN:VEVENT\r\nUID:fixture\r\nDTSTART;VALUE=DATE:20261013\r\nDTEND;VALUE=DATE:20261015\r\nSUMMARY:Test group\r\nEND:VEVENT";
 
 describe("ICS calendar", () => {
+  it("keeps the original UID stable when a non-recurring stay moves", () => {
+    const original = parseCalendar(wrap(event), new Date("2026-10-01"), new Date("2026-11-01"))[0];
+    const moved = parseCalendar(wrap(event.replace("20261013", "20261016").replace("20261015", "20261018")), new Date("2026-10-01"), new Date("2026-11-01"))[0];
+    expect(original.uid).toBe("fixture");
+    expect(moved.uid).toBe(original.uid);
+    expect(moved.occurrenceId).toBe("");
+    expect(moved.id).not.toBe(original.id);
+  });
+  it("distinguishes recurring occurrences without changing the series UID", () => {
+    const recurring = event.replace("SUMMARY:", "RRULE:FREQ=WEEKLY;COUNT=3\r\nSUMMARY:");
+    const entries = parseCalendar(wrap(recurring), new Date("2026-10-01"), new Date("2026-11-01"));
+    expect(entries.every((entry) => entry.uid === "fixture")).toBe(true);
+    expect(new Set(entries.map((entry) => entry.occurrenceId)).size).toBe(3);
+  });
+  it("uses the original recurrence identity when an exception moves dates", () => {
+    const recurring = event.replace("SUMMARY:", "RRULE:FREQ=WEEKLY;COUNT=3\r\nSUMMARY:");
+    const exception = event.replace("UID:fixture", "UID:fixture\r\nRECURRENCE-ID;VALUE=DATE:20261013").replace("20261013\r\nDTEND", "20261016\r\nDTEND").replace("DTEND;VALUE=DATE:20261015", "DTEND;VALUE=DATE:20261018");
+    const entries = parseCalendar(wrap(`${recurring}\r\n${exception}`), new Date("2026-10-01"), new Date("2026-11-01"));
+    expect(entries.find((entry) => entry.occurrenceId === "2026-10-13")).toMatchObject({ uid: "fixture", start: "2026-10-16", end: "2026-10-18" });
+  });
   it.each(["http://example.com/feed.ics", "https://127.0.0.1/feed", "https://[::1]/feed", "https://user:password@example.com/feed", "https://example.com:8443/feed", "https://device.local/feed"])("rejects unsafe source %s", (url) => {
     expect(calendarUrlSchema.safeParse(url).success).toBe(false);
   });

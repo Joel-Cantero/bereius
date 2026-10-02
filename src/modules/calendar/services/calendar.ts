@@ -4,16 +4,17 @@ import { logger } from "@/lib/logger";
 import { IntegrationSettingsError, resolveIntegration } from "@/modules/booking/services/settings";
 import { parseCalendar, type CalendarEntry } from "@/modules/calendar/ical";
 import { fetchCalendarSource } from "@/modules/calendar/source";
+import { calendarSourceKey } from "@/modules/calendar/services/identity";
 
 export type CalendarResult =
-  | { status: "ok"; entries: CalendarEntry[] }
+  | { status: "ok"; entries: CalendarEntry[]; sourceKey: string }
   | { status: "not_configured" | "unavailable"; entries: [] };
 
 export async function readCalendar(from: Date, to: Date): Promise<CalendarResult> {
   try {
     const { secret } = await resolveIntegration("CALENDAR_ICS");
     const source = await fetchCalendarSource(secret);
-    return { status: "ok", entries: parseCalendar(source, from, to) };
+    return { status: "ok", entries: parseCalendar(source, from, to), sourceKey: calendarSourceKey(secret) };
   } catch (error) {
     if (error instanceof IntegrationSettingsError && error.code === "not_configured") {
       return { status: "not_configured", entries: [] };

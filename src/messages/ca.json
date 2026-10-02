@@ -183,6 +183,11 @@
     "description": "Plantilla de Next.js autoallotjada i dockeritzada"
   },
   "Calendar": {
+    "bookingLinks": {
+      "title": "Vinculació al calendari", "event": "Esdeveniment", "choose": "Selecciona un esdeveniment", "unnamed": "Sense descripció", "confirm": "Confirmo aquesta vinculació", "link": "Vincula al calendari", "unlink": "Desvincula", "noCandidates": "No hi ha esdeveniments disponibles per a aquestes dates.", "openCalendar": "Obre el calendari", "confirmed": "Reserva confirmada", "needsReview": "Cal revisar", "history": "Historial de vinculació", "linked": "Vinculat", "unlinked": "Desvinculat", "operator": "Operador",
+      "review": { "changed": "Cal revisar: l’esdeveniment o la reserva han canviat.", "missing": "Cal revisar: l’esdeveniment vinculat ja no apareix al calendari.", "source_changed": "Cal revisar: la font del calendari ha canviat.", "unverified": "No s’ha pogut verificar el vincle. Es conserva la reserva." },
+      "errors": { "unauthenticated": "Cal iniciar sessió.", "forbidden": "No tens permís per fer aquesta acció.", "invalid": "Selecciona un esdeveniment i confirma la vinculació.", "state_changed": "La reserva, el vincle o l’esdeveniment han canviat. Actualitza la pàgina i torna-ho a provar.", "conflict": "La reserva o l’esdeveniment ja tenen un vincle. Actualitza la pàgina.", "unavailable": "No es pot consultar el calendari en aquest moment.", "not_configured": "El calendari encara no està configurat.", "unknown": "No s’ha pogut completar la vinculació." }
+    },
     "title": "Calendari",
     "description": "Calendari de reserves",
     "integrationTitle": "Calendari ICS",
