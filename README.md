@@ -105,6 +105,20 @@ alone is insufficient because a publicly reachable Traefik instance can forward 
 headers. When the guarantee is enforced, set the GitHub Variable to `true`; otherwise forwarded host
 and address headers remain ignored and the email limiter uses one conservative shared client bucket.
 
+### Calendar integration
+
+Administrators configure an HTTPS ICS source in **Integrations → ICS calendar**, then select
+**Test connection**. The URL is encrypted and write-only because it may contain a feed token.
+Operators and administrators can view the source in the **Calendar** sidebar section and navigate
+between months; this never imports bookings or changes WordPress availability. All-day departure
+dates are exclusive. Timed events are displayed on Europe/Madrid dates, with embedded ICS time zones
+honored by the parser.
+
+The source must resolve to public addresses and return HTTP 200 without redirects on HTTPS port
+443. Downloads are bounded to 10 seconds and 2 MiB. Missing or unavailable sources have explicit
+localized states. Apply the additive `CALENDAR_ICS` migration before deploying this feature. No
+additional environment variable is needed beyond the existing `BOOKING_SECRET_KEY`.
+
 ## Deployment
 
 Push to `main` triggers [`.github/workflows/ci.yml`](.github/workflows/ci.yml). After every parallel

@@ -287,9 +287,19 @@ export async function requestManualBankSync(input: {
     });
     if (!account) throw new BankSyncRequestError("not_configured");
 
+    await transaction.bankSyncRun.updateMany({
+      where: {
+        accountId: account.id,
+        trigger: { not: "MANUAL" },
+        status: { in: [...BANK_SYNC_NONTERMINAL_STATUSES] },
+      },
+      data: { status: "FAILED", finishedAt: now, leaseToken: null, leaseExpiresAt: null, failureCode: null },
+    });
+
     const existing = await transaction.bankSyncRun.findFirst({
       where: {
         accountId: account.id,
+        trigger: "MANUAL",
         status: { in: [...BANK_SYNC_NONTERMINAL_STATUSES] },
       },
       orderBy: { createdAt: "asc" },
@@ -446,6 +456,7 @@ export async function claimNextBankSync(
   for (;;) {
     const candidate = await db.bankSyncRun.findFirst({
       where: {
+        trigger: "MANUAL",
         OR: [
           {
             status: { in: ["QUEUED", "RETRYING"] },

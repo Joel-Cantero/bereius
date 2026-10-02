@@ -97,6 +97,7 @@ const CONFIG_SCHEMAS = {
   GRAVITY_FORMS: gravityFormsConfigSchema,
   HOLDED: holdedConfigSchema,
   BOOKING_MAIL: bookingMailConfigSchema,
+  CALENDAR_ICS: z.object({}).strict(),
 } as const satisfies Record<IntegrationProvider, z.ZodType>;
 
 export type GravityFormsConfig = z.infer<typeof gravityFormsConfigSchema>;

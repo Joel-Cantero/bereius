@@ -1,0 +1,1 @@
+ALTER TYPE "IntegrationProvider" ADD VALUE 'CALENDAR_ICS';

@@ -182,6 +182,23 @@
     "title": "Web app",
     "description": "Self-hosted, Dockerized Next.js starter"
   },
+  "Calendar": {
+    "title": "Calendar",
+    "description": "Booking calendar",
+    "integrationTitle": "ICS calendar",
+    "url": "HTTPS ICS URL",
+    "previous": "Previous month",
+    "next": "Next month",
+    "today": "Today",
+    "unnamed": "Untitled event",
+    "allDay": "All day",
+    "empty": "No events this month.",
+    "agenda": "Events",
+    "invalidMonth": "Invalid month. Showing the current month.",
+    "not_configured": "The calendar source is not configured.",
+    "unavailable": "The calendar could not be loaded. Try again later.",
+    "integrations": "Integrations"
+  },
   "Console": {
     "title": "Console",
     "subtitle": "Everything this application manages, in one place.",
@@ -189,11 +206,16 @@
     "userMenu": "Account menu",
     "logout": "Log out",
     "sections": {
+      "calendar": "Calendar",
       "bookings": "Bookings",
       "holded": "Holded",
       "account": "Account"
     },
     "links": {
+      "calendar": {
+        "label": "Calendar",
+        "description": "View events from the connected ICS calendar."
+      },
       "queue": {
         "label": "Queue",
         "description": "Review requests, approve them and record payments."
@@ -1200,7 +1222,8 @@
       "providers": {
         "HOLDED": "Holded",
         "GRAVITY_FORMS": "Gravity Forms",
-        "BOOKING_MAIL": "Notification email"
+        "BOOKING_MAIL": "Notification email",
+        "CALENDAR_ICS": "ICS calendar"
       },
       "choose": "Choose an option"
     }

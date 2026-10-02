@@ -19,15 +19,13 @@ vi.mock("@/modules/booking/services/settings", () => ({
 }));
 
 import { db } from "@/lib/db";
-import { HoldedError } from "@/lib/holded/client";
 import { BANK_SYNC_LEASE_MS } from "@/modules/banking/schema";
+import { claimNextBankSync, enqueueBankSync, processBankSync } from "@/modules/banking/services/synchronization";
 import { expireUnpaidBookings } from "@/modules/booking/services/expiry";
 import { createBankingFixtureScope } from "../helpers/banking";
-import { createHoldedTreasuryFixtureScope } from "../helpers/holded-treasury";
 
 const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === "true";
 const scopes = new Set<ReturnType<typeof createBankingFixtureScope>>();
-const providerFixtures = createHoldedTreasuryFixtureScope();
 const attemptStartedAt = new Date("2026-09-16T18:00:00.000Z");
 
 function fixtureScope(label: string) {
@@ -96,7 +94,7 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
     expect(providerMocks.listBankMovements).not.toHaveBeenCalled();
   });
 
-  it("rejects an older success and completes a new EXPIRY run before expiring", async () => {
+  it("defers after an older success without creating an automatic expiry scan", async () => {
     const { scope, booking, accountData, account } = await dueBooking(
       "bank-expiry-old-success",
     );
@@ -114,7 +112,7 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
 
     await expireUnpaidBookings(attemptStartedAt);
 
-    await expect(bookingState(booking.id)).resolves.toEqual({ state: "EXPIRED" });
+    await expect(bookingState(booking.id)).resolves.toEqual({ state: "AWAITING_PAYMENT" });
     const runs = await db.bankSyncRun.findMany({
       where: { accountId: account.id },
       orderBy: { createdAt: "asc" },
@@ -125,16 +123,8 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
         exhaustedAt: true,
       },
     });
-    expect(runs).toHaveLength(2);
-    expect(runs[1]).toMatchObject({
-      trigger: "EXPIRY",
-      status: "SUCCEEDED",
-      startedAt: expect.any(Date),
-      exhaustedAt: expect.any(Date),
-    });
-    expect(runs[1]!.startedAt!.getTime()).toBeGreaterThanOrEqual(
-      attemptStartedAt.getTime(),
-    );
+    expect(runs).toHaveLength(1);
+    expect(providerMocks.listBankMovements).not.toHaveBeenCalled();
   });
 
   it("does not let an older in-flight run authorize expiry", async () => {
@@ -163,11 +153,12 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
   });
 
   it("defers on provider outage and leaves the durable run retrying", async () => {
-    const { booking, account } = await dueBooking("bank-expiry-outage");
+    const { scope, booking, accountData, account } = await dueBooking("bank-expiry-outage");
     if (!account) throw new Error("Expected a treasury account");
-    providerMocks.listBankMovements.mockRejectedValue(
-      new HoldedError("unavailable", "synthetic provider detail"),
-    );
+    await db.bankSyncRun.create({ data: {
+      ...scope.run(accountData, { status: "RETRYING" }), startedAt: attemptStartedAt,
+      failureCode: "PROVIDER_UNAVAILABLE",
+    } });
 
     await expireUnpaidBookings(attemptStartedAt);
 
@@ -180,26 +171,21 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
         select: { trigger: true, status: true, failureCode: true },
       }),
     ).resolves.toEqual({
-      trigger: "EXPIRY",
+      trigger: "MANUAL",
       status: "RETRYING",
       failureCode: "PROVIDER_UNAVAILABLE",
     });
   });
 
   it("defers after an exhausted scan containing invalid-item incidents", async () => {
-    const { booking, accountData, account } = await dueBooking(
+    const { scope, booking, accountData, account } = await dueBooking(
       "bank-expiry-partial",
     );
     if (!account) throw new Error("Expected a treasury account");
-    providerMocks.listBankMovements.mockResolvedValue({
-      items: [
-        providerFixtures.movement(accountData.holdedAccountId, {
-          amount: "0.00",
-        }),
-      ],
-      hasMore: false,
-      cursor: null,
-    });
+    await db.bankSyncRun.create({ data: {
+      ...scope.run(accountData, { status: "PARTIAL", exhaustedAt: attemptStartedAt }),
+      startedAt: attemptStartedAt, incidentCount: 1,
+    } });
 
     await expireUnpaidBookings(attemptStartedAt);
 
@@ -219,13 +205,12 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
   });
 
   it("defers when a malformed page makes the fresh run fail", async () => {
-    const { booking, account } = await dueBooking("bank-expiry-failed");
+    const { scope, booking, accountData, account } = await dueBooking("bank-expiry-failed");
     if (!account) throw new Error("Expected a treasury account");
-    providerMocks.listBankMovements.mockResolvedValue({
-      items: [],
-      hasMore: true,
-      cursor: null,
-    });
+    await db.bankSyncRun.create({ data: {
+      ...scope.run(accountData, { status: "FAILED" }), startedAt: attemptStartedAt,
+      failureCode: "MISSING_CURSOR",
+    } });
 
     await expireUnpaidBookings(attemptStartedAt);
 
@@ -289,7 +274,8 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
   );
 
   it("rechecks a booking that changes state while the fresh scan runs", async () => {
-    const { booking } = await dueBooking("bank-expiry-concurrent-state");
+    const { booking, account } = await dueBooking("bank-expiry-concurrent-state");
+    if (!account) throw new Error("Expected a treasury account");
     providerMocks.listBankMovements.mockImplementation(async () => {
       await db.bookingRequest.update({
         where: { id: booking.id },
@@ -298,6 +284,10 @@ describe.skipIf(!runIntegrationTests)("bank-evidence booking expiry", () => {
       return { items: [], hasMore: false, cursor: null };
     });
 
+    await enqueueBankSync({ accountId: account.id, trigger: "MANUAL", now: attemptStartedAt });
+    const lease = await claimNextBankSync(attemptStartedAt);
+    if (!lease) throw new Error("Expected a manual bank scan");
+    await processBankSync(lease, { now: () => attemptStartedAt });
     await expireUnpaidBookings(attemptStartedAt);
 
     await expect(bookingState(booking.id)).resolves.toEqual({ state: "CONFIRMED" });

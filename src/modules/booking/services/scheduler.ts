@@ -4,7 +4,6 @@ import { logger } from "@/lib/logger";
 import { BANK_SYNC_SWEEP_INTERVAL_MS } from "@/modules/banking/schema";
 import {
   claimNextBankSync,
-  enqueueDueBankSyncRuns,
   processBankSync,
 } from "@/modules/banking/services/synchronization";
 import { runBankRetention } from "@/modules/banking/services/retention";
@@ -41,12 +40,12 @@ type TaskName = keyof typeof SCHEDULES;
 
 async function runBankingSweep() {
   const now = new Date();
-  const enqueued = await enqueueDueBankSyncRuns(now);
   const lease = await claimNextBankSync(now);
-  if (!lease) return { enqueued, processed: false };
+  if (!lease) return { processed: false };
 
   await processBankSync(lease);
-  return { enqueued, processed: true, runId: lease.runId };
+  await expireUnpaidBookings(now);
+  return { processed: true, runId: lease.runId };
 }
 
 const TASKS: Readonly<Record<TaskName, () => Promise<unknown>>> = {

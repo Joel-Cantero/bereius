@@ -1146,6 +1146,19 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
       });
     });
 
+    it.each(["SCHEDULED", "EXPIRY"] as const)("ignores a legacy queued %s scan and only claims a manual refresh", async (trigger) => {
+      const scope = bankingScope("bank-manual-only");
+      const accountData = scope.treasuryAccount();
+      const account = await db.holdedTreasuryAccount.create({ data: accountData });
+      const now = new Date("2026-10-01T12:00:00.000Z");
+      await enqueueBankSync({ accountId: account.id, trigger, now });
+      expect(await claimNextBankSync(now)).toBeNull();
+      const user = await db.user.create({ data: scope.user() });
+      const manual = await requestManualBankSync({ requestedById: user.id, now });
+      expect(await claimNextBankSync(now)).toMatchObject({ runId: manual.runId });
+      expect(await db.bankSyncRun.findUniqueOrThrow({ where: { id: manual.runId } })).toMatchObject({ trigger: "MANUAL" });
+    });
+
     it("returns one active manual run and enforces a one-minute database cooldown", async () => {
       const scope = bankingScope("bank-manual-cooldown");
       const actor = await db.user.create({ data: scope.user() });
