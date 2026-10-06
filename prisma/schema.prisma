@@ -264,7 +264,8 @@ model Customer {
 
 model BookingRequest {
   id             String       @id @default(cuid())
-  gravityEntryId String       @unique
+  // Not unique alone: WordPress reuses entry ids after a database restore.
+  gravityEntryId String
   customerId     String
   state          BookingState @default(IN_REVIEW)
   boardType      BoardType
@@ -297,6 +298,7 @@ model BookingRequest {
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
 
+  @@unique([gravityEntryId, submittedAt])
   @@index([state, createdAt])
   @@index([customerId])
 }
@@ -620,7 +622,9 @@ model BankReconciliationProposal {
 }
 
 model IntakeCursor {
-  source      String   @id
-  lastEntryId String
-  updatedAt   DateTime @updatedAt
+  source             String    @id
+  lastEntryId        String
+  // Newest Gravity Forms creation time read; null for cursors stored before it was tracked.
+  lastEntryCreatedAt DateTime?
+  updatedAt          DateTime  @updatedAt
 }

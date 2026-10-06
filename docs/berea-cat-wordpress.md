@@ -441,6 +441,11 @@ parameters through the `[nom]`, `[entrada]` and `[sortida]` shortcodes.
 | 73 | Headcount | Entered |
 | 74 | Board type, `dc` or `pc` | Entered |
 
+Entry identifiers are not permanent. In early October 2026 the entries table went back to an earlier
+state, most likely through a database restore, and Gravity Forms reissued identifiers from 1108
+onwards that Bereius had already read up to 1113. Bereius therefore identifies an entry by its
+identifier together with `date_created` (UTC).
+
 ### Two shapes of submission
 
 This is the single most important consequence for intake in this application.
@@ -457,6 +462,8 @@ the form before render, validation and submission:
   `gform_pre_validation_2` and `gform_pre_submission_filter_2`, so the submitted values come from
   the linked Holded contact rather than from the browser.
 - The tax-identifier checksum validation is **skipped**, because the value comes from Holded.
+- Field **63 (surname) arrives empty**: Holded has a single name field, so `last_name` is never
+  set and the name travels in field 61 and, for organisations, field 64.
 - A notice above the form tells the customer their data was filled in automatically and links to the
   customer area.
 

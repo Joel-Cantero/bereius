@@ -164,7 +164,8 @@ function buildSubmissionSchema(fields: GravityFormFieldMap) {
       id: z.union([z.string(), z.number()]).transform(String),
       date_created: requiredText,
       [fields.firstName]: requiredText,
-      [fields.lastName]: requiredText,
+      // Signed-in customers submit Holded's single name field, so no surname.
+      [fields.lastName]: optionalText,
       [fields.organisation]: optionalText,
       [fields.taxId]: requiredText,
       [fields.email]: requiredText.pipe(z.email()),
@@ -190,7 +191,9 @@ function buildSubmissionSchema(fields: GravityFormFieldMap) {
           // Holded contact is named.
           name:
             read<string | null>(fields.organisation) ??
-            `${read<string>(fields.firstName)} ${read<string>(fields.lastName)}`.trim(),
+            [read<string>(fields.firstName), read<string | null>(fields.lastName)]
+              .filter(Boolean)
+              .join(" "),
           taxId: read<string>(fields.taxId).toUpperCase().replaceAll(/\s+/gu, ""),
           email: read<string>(fields.email).toLowerCase(),
           phone: read<string | null>(fields.phone),

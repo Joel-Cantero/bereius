@@ -87,7 +87,7 @@ async function runTask(name: TaskName): Promise<void> {
  * Ticks never overlap: each task waits for its previous run before scheduling
  * the next, so a slow intake cannot pile up on itself. Running two instances is
  * safe by construction rather than by assumption — outbox jobs are claimed
- * atomically and intake is idempotent per entry id.
+ * atomically and intake is idempotent per entry id and creation time.
  */
 export function startScheduler(): SchedulerHandle {
   let stopping = false;

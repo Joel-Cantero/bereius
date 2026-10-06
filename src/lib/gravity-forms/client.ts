@@ -12,11 +12,22 @@ import type { ProviderHttpClient } from "@/lib/email/types";
 export const GRAVITY_FORMS_TIMEOUT_MS = 10_000;
 export const GRAVITY_FORMS_PAGE_SIZE = 50;
 
+/** Gravity Forms reports `date_created` in UTC, as `YYYY-MM-DD HH:MM:SS`. */
+const GRAVITY_FORMS_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/u;
+
+export function parseGravityFormsTimestamp(value: string): Date {
+  return new Date(`${value.replace(" ", "T")}Z`);
+}
+
+function formatGravityFormsTimestamp(value: Date): string {
+  return value.toISOString().slice(0, 19).replace("T", " ");
+}
+
 /** Raw entry: field values arrive keyed by field identifier, not by label. */
 const entrySchema = z
   .object({
     id: z.union([z.string(), z.number()]).transform(String),
-    date_created: z.string().min(1),
+    date_created: z.string().regex(GRAVITY_FORMS_TIMESTAMP),
   })
   .catchall(z.unknown());
 
@@ -31,6 +42,13 @@ export interface GravityFormsCredentials {
   formId: string;
   consumerKey: string;
   consumerSecret: string;
+}
+
+export interface GravityFormsCursor {
+  /** Highest entry id read. */
+  entryId: string;
+  /** Newest creation time read; null for cursors stored before it was tracked. */
+  createdAt: Date | null;
 }
 
 export class GravityFormsError extends Error {
@@ -69,31 +87,39 @@ function classify(outcome: ProviderHttpOutcome): GravityFormsError | null {
 
 function entriesUrl(
   credentials: GravityFormsCredentials,
-  afterEntryId: string | null,
+  cursor: GravityFormsCursor | null,
 ): string {
   const base = credentials.apiUrl.replace(/\/+$/u, "");
   const url = new URL(`${base}/forms/${credentials.formId}/entries`);
 
-  // Ascending id order with an explicit cursor: filtering by creation date
-  // would skip entries whenever the WordPress and application clocks disagree.
   url.searchParams.set("sorting[key]", "id");
   url.searchParams.set("sorting[direction]", "ASC");
   url.searchParams.set("paging[page_size]", String(GRAVITY_FORMS_PAGE_SIZE));
 
-  if (afterEntryId !== null) {
-    url.searchParams.set(
-      "search",
-      JSON.stringify({
-        field_filters: [{ key: "id", operator: ">", value: afterEntryId }],
-      }),
-    );
+  if (cursor !== null) {
+    const afterId = { key: "id", operator: ">", value: cursor.entryId };
+    // Both bounds come from WordPress's own entries, so no clock comparison is
+    // involved. The date bound finds ids reused after a database restore.
+    const fieldFilters =
+      cursor.createdAt === null
+        ? [afterId]
+        : {
+            mode: "any",
+            0: afterId,
+            1: {
+              key: "date_created",
+              operator: ">",
+              value: formatGravityFormsTimestamp(cursor.createdAt),
+            },
+          };
+    url.searchParams.set("search", JSON.stringify({ field_filters: fieldFilters }));
   }
 
   return url.toString();
 }
 
 export interface GravityFormsClient {
-  fetchEntriesAfter(afterEntryId: string | null): Promise<GravityFormsEntry[]>;
+  fetchEntriesAfter(cursor: GravityFormsCursor | null): Promise<GravityFormsEntry[]>;
 }
 
 export function createGravityFormsClient(
@@ -105,10 +131,10 @@ export function createGravityFormsClient(
   ).toString("base64")}`;
 
   return {
-    async fetchEntriesAfter(afterEntryId) {
+    async fetchEntriesAfter(cursor) {
       const outcome = await executeProviderRequest({
         client: httpClient,
-        logicalUrl: entriesUrl(credentials, afterEntryId),
+        logicalUrl: entriesUrl(credentials, cursor),
         init: {
           method: "GET",
           headers: { accept: "application/json", authorization },

@@ -57,6 +57,7 @@ describe("completed HTTP email migration", () => {
       "20261001090000_booking_operation_events",
       "20261001190500_calendar_ics",
       "20261002102515_calendar_booking_links",
+      "20261006180438_gravity_entry_reuse",
     ]);
 
     const migrationSource = await combinedContents(
