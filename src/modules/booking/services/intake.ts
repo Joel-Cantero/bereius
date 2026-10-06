@@ -4,7 +4,9 @@ import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import {
   createGravityFormsClient,
+  parseGravityFormsTimestamp,
   type GravityFormsClient,
+  type GravityFormsCursor,
 } from "@/lib/gravity-forms/client";
 import { logger } from "@/lib/logger";
 import {
@@ -27,32 +29,34 @@ export interface IntakeSummary {
   cursor: string | null;
 }
 
-async function readCursor(): Promise<string | null> {
+async function readCursor(): Promise<GravityFormsCursor | null> {
   const row = await db.intakeCursor.findUnique({
     where: { source: INTAKE_SOURCE },
-    select: { lastEntryId: true },
+    select: { lastEntryId: true, lastEntryCreatedAt: true },
   });
-  return row?.lastEntryId ?? null;
+  return row ? { entryId: row.lastEntryId, createdAt: row.lastEntryCreatedAt } : null;
 }
 
-async function advanceCursor(entryId: string): Promise<string> {
+function compareEntryIds(left: string, right: string): number {
+  return left.localeCompare(right, undefined, { numeric: true });
+}
+
+/** Each bound only moves forward, so a stale overlapping run cannot rewind either. */
+async function advanceCursor(entryId: string, createdAt: Date): Promise<string> {
   for (;;) {
     const current = await db.intakeCursor.findUnique({
       where: { source: INTAKE_SOURCE },
-      select: { lastEntryId: true },
+      select: { lastEntryId: true, lastEntryCreatedAt: true },
     });
-
-    if (
-      current &&
-      entryId.localeCompare(current.lastEntryId, undefined, { numeric: true }) <= 0
-    ) {
-      return current.lastEntryId;
-    }
 
     if (!current) {
       try {
         await db.intakeCursor.create({
-          data: { source: INTAKE_SOURCE, lastEntryId: entryId },
+          data: {
+            source: INTAKE_SOURCE,
+            lastEntryId: entryId,
+            lastEntryCreatedAt: createdAt,
+          },
         });
         return entryId;
       } catch (error) {
@@ -66,11 +70,30 @@ async function advanceCursor(entryId: string): Promise<string> {
       }
     }
 
+    const lastEntryId =
+      compareEntryIds(entryId, current.lastEntryId) > 0 ? entryId : current.lastEntryId;
+    const lastEntryCreatedAt =
+      current.lastEntryCreatedAt &&
+      current.lastEntryCreatedAt.getTime() >= createdAt.getTime()
+        ? current.lastEntryCreatedAt
+        : createdAt;
+
+    if (
+      lastEntryId === current.lastEntryId &&
+      lastEntryCreatedAt === current.lastEntryCreatedAt
+    ) {
+      return lastEntryId;
+    }
+
     const advanced = await db.intakeCursor.updateMany({
-      where: { source: INTAKE_SOURCE, lastEntryId: current.lastEntryId },
-      data: { lastEntryId: entryId },
+      where: {
+        source: INTAKE_SOURCE,
+        lastEntryId: current.lastEntryId,
+        lastEntryCreatedAt: current.lastEntryCreatedAt,
+      },
+      data: { lastEntryId, lastEntryCreatedAt },
     });
-    if (advanced.count === 1) return entryId;
+    if (advanced.count === 1) return lastEntryId;
   }
 }
 
@@ -119,13 +142,13 @@ async function persistSubmission(submission: BookingSubmission): Promise<boolean
           startDate: stay.startDate,
           endDate: stay.endDate,
           headcount: stay.headcount,
-          submittedAt: new Date(`${submission.submittedAt.replace(" ", "T")}Z`),
+          submittedAt: parseGravityFormsTimestamp(submission.submittedAt),
         },
       });
     });
     return true;
   } catch (error) {
-    // The unique entry id is the idempotency key: a re-read is not a failure.
+    // Entry id plus creation time is the idempotency key: a re-read is not a failure.
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -174,10 +197,18 @@ export async function runIntake(
     created: 0,
     skipped: 0,
     rejected: 0,
-    cursor: startingCursor,
+    cursor: startingCursor?.entryId ?? null,
   };
 
   for (const entry of entries) {
+    // Only the creation-time bound can return such an entry.
+    if (startingCursor && compareEntryIds(entry.id, startingCursor.entryId) <= 0) {
+      logger.warn(
+        { event: "booking_intake_entry_id_reused", entryId: entry.id },
+        "Gravity Forms reused an entry id at or below the intake cursor",
+      );
+    }
+
     const parsed = parser.parse(entry);
 
     if (!parsed.ok) {
@@ -196,7 +227,10 @@ export async function runIntake(
       summary.skipped += 1;
     }
 
-    summary.cursor = await advanceCursor(entry.id);
+    summary.cursor = await advanceCursor(
+      entry.id,
+      parseGravityFormsTimestamp(entry.date_created),
+    );
   }
 
   logger.info(

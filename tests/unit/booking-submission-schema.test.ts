@@ -74,6 +74,22 @@ describe("Gravity Forms submission parsing", () => {
     },
   );
 
+  it("accepts a signed-in customer's entry, which carries no surname", () => {
+    const result = parse(entry({ [f.lastName]: "" }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.submission.customer.name).toBe("Juventud para Cristo");
+  });
+
+  it("names a requester with no organisation or surname by the first name", () => {
+    const result = parse(entry({ [f.lastName]: "", [f.organisation]: "" }));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.submission.customer.name).toBe("Joel");
+  });
+
   it("normalises the tax id and the email", () => {
     const result = parse(entry({ [f.taxId]: " b 123 45678 " }));
 

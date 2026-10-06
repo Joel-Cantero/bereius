@@ -66,8 +66,8 @@ describe("Gravity Forms entries", () => {
     );
   });
 
-  // Filtering by creation date would skip entries whenever the WordPress and
-  // application clocks disagree, so the cursor is the entry id.
+  // The cursor's bounds come from WordPress's own entries, never from the
+  // application clock, so the read order is by identifier.
   it("asks for ascending identifiers rather than ordering by date", async () => {
     const { http, client } = gravity([page({ entries: [] })]);
 
@@ -83,13 +83,41 @@ describe("Gravity Forms entries", () => {
   it("filters on the stored cursor once one exists", async () => {
     const { http, client } = gravity([page({ entries: [] })]);
 
-    await client.fetchEntriesAfter("417");
+    await client.fetchEntriesAfter({ entryId: "417", createdAt: null });
 
     const { searchParams } = new URL(http.requests[0].logicalUrl);
     expect(JSON.parse(searchParams.get("search") ?? "null")).toEqual({
       field_filters: [{ key: "id", operator: ">", value: "417" }],
     });
     expect(searchParams.get("search[field_filters][0][key]")).toBeNull();
+  });
+
+  it("also asks for entries created after the cursor, which finds reused ids", async () => {
+    const { http, client } = gravity([page({ entries: [] })]);
+
+    await client.fetchEntriesAfter({
+      entryId: "1113",
+      createdAt: new Date("2026-10-01T06:29:04.000Z"),
+    });
+
+    const { searchParams } = new URL(http.requests[0].logicalUrl);
+    expect(JSON.parse(searchParams.get("search") ?? "null")).toEqual({
+      field_filters: {
+        mode: "any",
+        0: { key: "id", operator: ">", value: "1113" },
+        1: { key: "date_created", operator: ">", value: "2026-10-01 06:29:04" },
+      },
+    });
+  });
+
+  it("refuses an entry whose creation time is not a Gravity Forms timestamp", async () => {
+    const { client } = gravity([
+      page({ entries: [{ id: "1", date_created: "2026-07-01T10:00:00Z" }] }),
+    ]);
+
+    await expect(codeOf(client.fetchEntriesAfter(null))).resolves.toBe(
+      "malformed_response",
+    );
   });
 
   it("accepts a numeric identifier and reports it as a string", async () => {

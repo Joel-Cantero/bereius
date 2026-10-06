@@ -8,6 +8,7 @@ const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === "true";
 
 import { db } from "@/lib/db";
 import type { GravityFormsClient, GravityFormsEntry } from "@/lib/gravity-forms/client";
+import { logger } from "@/lib/logger";
 import { DEFAULT_GRAVITY_FORM_FIELDS as F } from "@/modules/booking/schema";
 import { INTAKE_SOURCE, runIntake } from "@/modules/booking/services/intake";
 
@@ -73,6 +74,7 @@ describe.skipIf(!runIntegrationTests)("booking intake integration", () => {
     });
     await db.intakeCursor.deleteMany({ where: { source: INTAKE_SOURCE } });
     createdEntryIds.length = 0;
+    vi.restoreAllMocks();
   });
 
   afterAll(async () => {
@@ -104,7 +106,7 @@ describe.skipIf(!runIntegrationTests)("booking intake integration", () => {
 
     await runIntake({ client: clientReturning([only!]) });
 
-    const booking = await db.bookingRequest.findUniqueOrThrow({
+    const booking = await db.bookingRequest.findFirstOrThrow({
       where: { gravityEntryId: only!.id },
       include: { customer: true },
     });
@@ -134,7 +136,7 @@ describe.skipIf(!runIntegrationTests)("booking intake integration", () => {
 
     await runIntake({ client: clientReturning([only!]) });
 
-    const booking = await db.bookingRequest.findUniqueOrThrow({
+    const booking = await db.bookingRequest.findFirstOrThrow({
       where: { gravityEntryId: only!.id },
       include: { customer: true },
     });
@@ -216,7 +218,55 @@ describe.skipIf(!runIntegrationTests)("booking intake integration", () => {
     await runIntake({ client });
 
     expect(client.fetchEntriesAfter).toHaveBeenNthCalledWith(1, null);
-    expect(client.fetchEntriesAfter).toHaveBeenNthCalledWith(2, entries[0]!.id);
+    expect(client.fetchEntriesAfter).toHaveBeenNthCalledWith(2, {
+      entryId: entries[0]!.id,
+      createdAt: new Date("2026-09-09T11:56:32.000Z"),
+    });
+  });
+
+  it("imports an entry whose id WordPress reused after a database restore", async () => {
+    const original = entry({ date_created: "2026-09-28 07:41:29" });
+    const reused = entry({ id: original.id, date_created: "2026-10-04 11:14:35" });
+    track([original]);
+    const warn = vi.spyOn(logger, "warn");
+
+    await runIntake({ client: clientReturning([original]) });
+    await expect(
+      runIntake({ client: clientReturning([reused]) }),
+    ).resolves.toMatchObject({ read: 1, created: 1, skipped: 0, rejected: 0 });
+
+    await expect(
+      db.bookingRequest.count({ where: { gravityEntryId: original.id } }),
+    ).resolves.toBe(2);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "booking_intake_entry_id_reused",
+        entryId: original.id,
+      }),
+      expect.any(String),
+    );
+    await expect(
+      db.intakeCursor.findUniqueOrThrow({ where: { source: INTAKE_SOURCE } }),
+    ).resolves.toMatchObject({
+      lastEntryId: original.id,
+      lastEntryCreatedAt: new Date("2026-10-04T11:14:35.000Z"),
+    });
+  });
+
+  it("imports a signed-in customer's entry, which carries no surname", async () => {
+    const [only] = track([
+      entry({ [F.lastName]: "", [F.organisation]: "Associació Exemple" }),
+    ]);
+
+    await expect(
+      runIntake({ client: clientReturning([only!]) }),
+    ).resolves.toMatchObject({ created: 1, rejected: 0 });
+
+    const booking = await db.bookingRequest.findFirstOrThrow({
+      where: { gravityEntryId: only!.id },
+      include: { customer: true },
+    });
+    expect(booking.customer.name).toBe("Associació Exemple");
   });
 
   it("does not let a stale overlapping run move the cursor backwards", async () => {
@@ -255,7 +305,7 @@ describe.skipIf(!runIntegrationTests)("booking intake integration", () => {
     ).resolves.toMatchObject({ created: 1, rejected: 0 });
 
     await expect(
-      db.bookingRequest.findUniqueOrThrow({
+      db.bookingRequest.findFirstOrThrow({
         where: { gravityEntryId: moved.id },
       }),
     ).resolves.toMatchObject({ headcount: 55 });

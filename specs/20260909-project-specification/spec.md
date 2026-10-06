@@ -173,9 +173,11 @@ next step is human review; nobody approves a booking within seconds of it arrivi
 
 Mechanics:
 
-- Entries are read in ascending identifier order, and the last processed identifier is stored as a
-  cursor. Filtering by creation date instead would risk skipping entries whenever the WordPress and
-  application clocks disagree.
+- Entries are read in ascending identifier order. The cursor stores the highest identifier and the
+  newest creation time read, and an entry is read when either value is above the cursor: WordPress
+  reissued identifiers in October 2026, most likely after a database restore. Both values come from
+  WordPress's own entries, so a difference between the WordPress and application clocks cannot
+  skip entries.
 - Fields are mapped by **field identifier**, not by label. The n8n webhook keys off labels such as
   `Nom`, `Codi postal` and `Telèfon`, so renaming a field in Gravity Forms breaks the mapping
   silently or produces a request with empty values.
@@ -183,8 +185,8 @@ Mechanics:
   are recorded so a malformed submission is visible rather than skipped.
 - Credentials for the Gravity Forms API are read through `src/lib/env.ts`.
 
-The Gravity Forms entry identifier is the idempotency key: reprocessing the same entry resolves to
-the same `BookingRequest` instead of creating a second one.
+The Gravity Forms entry identifier together with its creation time is the idempotency key:
+reprocessing the same entry resolves to the same `BookingRequest` instead of creating a second one.
 
 The requester receives an acknowledgement immediately, sent by Gravity Forms' own notification on
 submission, so it does not wait for the next poll. The n8n workflow sent nothing until a human
@@ -519,8 +521,8 @@ a booking is never released while a valid payment sits unread.
 
 - Every request is persisted before any external call is attempted.
 - Every state transition records actor, timestamp, previous state, new state and reason.
-- Intake is idempotent per Gravity Forms entry identifier, and the cursor advances only after the
-  entry is committed.
+- Intake is idempotent per Gravity Forms entry identifier and creation time, and the cursor advances
+  only after the entry is committed.
 - Outbound Holded and calendar operations are idempotent per booking request and retried on failure.
 - Rejection, cancellation and expiry all notify the requester. Confirmation does too.
 - Bank transactions are stored once, keyed by entry reference, and a transaction can back at most one
@@ -643,7 +645,7 @@ credentials.
 | Stolen operator session | Fraudulent approvals, quotes issued to third parties, bookings confirmed without payment | Passwordless sign-in with single-use challenges; every transition attributed in the audit trail; session management already in the template |
 | Attacker quotes someone else's estimate identifier in a transfer | A booking confirmed by a payment that does not belong to it | No movement confirms automatically; the operator sees amount, difference and reference evidence, and the audit trail records the selected movement |
 | Underpayment intended to pass as full payment | Booking confirmed while money is owed | Automatic proposals and manual entry remain exact; only an explicit operator choice can accept the visible inclusive ±5% variance, while the invoice retains agreed amounts |
-| Replayed or duplicated form entries | Duplicate bookings and duplicate Holded documents | Idempotency keyed on the Gravity Forms entry identifier; the cursor advances only after commit |
+| Replayed or duplicated form entries | Duplicate bookings and duplicate Holded documents | Idempotency keyed on the Gravity Forms entry identifier and creation time; the cursor advances only after commit |
 | Enumeration of the iCalendar feed URL | Occupancy calendar disclosed | Feed carries no personal data; occupancy is already public on the website |
 | Leak of the SMTP password from the database | Mail sent impersonating the organisation | Encrypted at rest with an environment-held key; never rendered back to the browser |
 | Database dump containing every integration credential | Full access to invoicing, form submissions and the bank | Credentials are encrypted with an envelope key held only in the environment, so a dump alone is not enough |
