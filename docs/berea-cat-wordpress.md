@@ -2,8 +2,9 @@
 
 Context for anyone working on this application. It describes the systems that sit **upstream** of
 Berea Booking Manager: the WordPress site at `berea.cat`, its customer area (*Àrea client*), the
-Gravity Forms booking request, and the inactive n8n workflow retained for on-demand synchronization
-of WordPress users with Holded contacts.
+Gravity Forms booking request, and the inactive n8n workflow retained as historical reference.
+Bereius now implements preview-first principal synchronization and administrative delegation;
+production activation requires a separate deployment request.
 
 Nothing here is owned by this repository. It is recorded because the booking request that this
 application ingests is produced by these systems, and because two of the decisions below contradict
@@ -39,6 +40,7 @@ flowchart LR
     AREA -.->|"prefills"| FORM
     FORM -->|"hourly poll, GF REST v2"| APP
     APP -->|"contacts, paged marked people,<br/>estimates, invoices"| HOLDED
+    APP -->|"protected admin REST<br/>principal reconciliation · delegation"| WP
     APP -.->|"iCalendar feed"| CAL
 ```
 
@@ -77,8 +79,10 @@ when Holded is unavailable; its external projection stays queued until the API r
 ### Ownership and activation
 
 Delegation is always active when the plugin is loaded. WordPress owns the complete lifecycle and
-uses the existing `BEREA_HOLDED_TOKEN` directly; there is no Bereius URL, HMAC secret or delegate API
-route to configure.
+uses the existing `BEREA_HOLDED_TOKEN` directly. WordPress needs no Bereius callback URL or HMAC
+secret. Bereius administration uses application-password authentication on the protected
+`/wp-json/berea/v1/admin/customers`, `/delegations` and `/delegations/action` routes; those routes
+must be deployed before enabling this feature in Bereius.
 
 An invitation creates a pending WordPress account and sends a single-use Magic Login link. It does
 not create a Holded person. Accepting the invitation first activates WordPress access and then queues
@@ -232,7 +236,7 @@ Defined centrally in `hcf_get_customer_fields()` and registered for the REST API
 | `holded_mobile` | `mobile` | yes |
 | `holded_website` | `website` | yes |
 | `holded_tags` | `tags`, comma-joined | no |
-| `holded_last_sync` | — | written by n8n, ISO 8601 |
+| `holded_last_sync` | — | written by the protected WordPress upsert (formerly n8n), ISO 8601 |
 | `user_email` | `email` | yes, changes the sign-in address |
 
 **The tax identifier lives in Holded's `code`, not in `vat_number`.** `custom_id` is the external
@@ -353,12 +357,55 @@ existing customer base, with screenshots embedded as `cid:` attachments. It was 
 uploading a token-guarded PHP sender over FTPS, invoking it once over HTTPS, and deleting it —
 the same technique used to syntax-check PHP without a local interpreter.
 
-## The n8n sync workflow
+## Bereius Customer Administration
+
+The admin-only Clients section manages the WordPress connection, principal reconciliation and
+live delegates. Holded remains the fiscal source; WordPress remains the identity and lifecycle
+authority. Bereius stores encrypted integration credentials, bounded technical run results and
+administrator audit events, not a delegate directory. Delivery recipient discovery still reads
+marked Holded people and freezes recipients exactly as before.
+
+### Preview-First Activation
+
+1. Obtain an explicit deployment request. Deploy compatible WordPress endpoints first and the
+  additive Bereius migration/application next. Verify the WordPress host supports its named
+  database lock and that protected reads work with the dedicated administrative service account.
+2. Save the HTTPS origin, service username and application password in Clients. The existing
+  `BOOKING_SECRET_KEY` envelope encrypts the password. Leave principal writes and daily sync off.
+3. Verify the connection and run a preview. Review conflicts and orphan candidates. An account
+  is writable only with role `cliente`, account type `principal`, `berea_sync_managed=1`, a
+  matching Holded ID and canonical `holded_<id>` username; unrelated accounts are not adopted.
+4. To enable manual writes, save that setting, verify again and preview again. Saving configuration
+  invalidates verification and the prior preview version. Apply requires a successful matching
+  preview from the last 24 hours and writes at most 100 accounts sequentially per run.
+5. Enable daily sync only explicitly, then verify and preview the new configuration before its first
+  apply. The scheduler checks unchanged configuration approval and permits at most one automatic
+  apply per 24 hours. Keep the n8n contact workflow unpublished throughout.
+
+Both snapshot readers fail closed on incomplete or unbounded pagination. Orphans are review items,
+never automatic deletions. Run and audit history retain technical identifiers for 90 days. Counts
+in failed runs describe the proposed plan and must not be interpreted as confirmed remote writes.
+
+### Delegation and Recovery
+
+Invite/update/resend/revoke/reinvite use WordPress's native lifecycle. Updating an email invalidates
+previous access and requires a fresh invitation acceptance before access can return. Removing
+access retains the user. WordPress reports projection state as queued, retrying or no pending
+projection; no pending work is not a claim that an account has a Holded person.
+
+Disable daily sync and principal writes before investigating a reconciliation incident. Never
+automatically repeat an ambiguous invitation or email-changing update: reload the authoritative
+delegate list and inspect WordPress before an explicit retry. Pending invites remain pending
+until acceptance, and Holded projection failures do not undo accepted access. Keep the applied
+database migration and history; do not reverse migrations or delete users as compensation.
+
+## The n8n Sync Workflow (Historical)
 
 **Name**: `Sincronizar contactos de Holded hacía WordPress` · **ID**: `RFreFgVG8yona2tE` · 12 nodes.
 
 Its stored definition contains a **02:00 daily** schedule, but the workflow is unpublished and does
-not run automatically. It may be executed manually for a controlled full reconciliation.
+not run automatically. It is not the approved reconciliation path after Bereius activation and
+must not be run concurrently with the replacement.
 
 ```
 Schedule 02:00
@@ -410,8 +457,8 @@ The parent still has 50 historical executions parked in `waiting` until `3000-01
 wake on that schedule, and unpublishing blocks new production webhook executions, but they should be
 deleted or cancelled through n8n when execution-management access is available. Also remove or
 disable the corresponding Gravity Forms webhook feed; the current automation is Bereius's hourly
-REST intake, not this legacy webhook. The contact sync workflow itself is retained because Bereius
-has no equivalent customer-account projection.
+REST intake, not this legacy webhook. The contact sync workflow is retained for historical
+reference; Bereius now provides the bounded, preview-first replacement without automatic deletion.
 
 ## The booking request
 

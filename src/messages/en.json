@@ -1,4 +1,21 @@
 {
+  "Customers": {
+    "title": "Customers", "search": "Search customers", "empty": "No customers", "unavailable": "WordPress is unavailable or not configured.",
+    "selectCustomer": "No customer selected", "delegates": "Delegates", "noDelegates": "No delegates", "invite": "Invite delegate",
+    "settings": "WordPress connection", "origin": "HTTPS origin", "username": "Service username", "password": "Application password",
+    "synchronization": "Synchronization", "writesEnabled": "Allow principal updates", "automaticSync": "Daily synchronization",
+    "save": "Save", "verify": "Verify connection", "preview": "Preview", "apply": "Synchronize", "history": "History", "noRuns": "No runs",
+    "close": "Close", "cancel": "Cancel", "revoke": "Revoke access", "resend": "Resend invitation", "reinvite": "Reinvite",
+    "revokeTitle": "Revoke access?", "revokeBody": "The delegate will lose access immediately. The account will be retained.", "review": "Review pending", "runFailed": "The run did not complete.",
+    "fields": { "first_name": "First name", "last_name": "Last name", "email": "Email", "phone": "Phone" },
+    "statuses": { "pending": "Invitation pending", "active": "Active", "revoked": "Revoked" },
+    "projection": { "queued": "Holded pending", "retrying": "Holded retry pending", "idle": "No projection pending" },
+    "outcomes": { "saved": "Saved", "verified": "Connection verified", "completed": "Run completed" },
+    "modes": { "PREVIEW": "Preview", "APPLY": "Synchronization" },
+    "runStatuses": { "RUNNING": "Running", "SUCCEEDED": "Completed", "FAILED": "Failed" },
+    "changes": { "create": "Creations", "update": "Updates", "unchanged": "Unchanged", "conflict": "Conflicts", "orphan_review": "Absent from Holded" },
+    "errors": { "invalid": "Review the form values.", "forbidden": "An administrator session is required.", "connection": "The operation could not be confirmed.", "unknown": "Unknown outcome. The invitation was not retried.", "writes_disabled": "Writes are disabled or the connection is unverified.", "preview_required": "A recent preview with this configuration is required.", "sync_busy": "A synchronization is already running.", "rate_limited": "The temporary operation limit has been reached.", "settings_changed": "The configuration changed during the run." }
+  },
   "Email": {
     "loginMagicLink": {
       "subject": "Your login code for {productName}",
@@ -212,11 +229,13 @@
     "logout": "Log out",
     "sections": {
       "calendar": "Calendar",
+      "customers": "Customers",
       "bookings": "Bookings",
       "holded": "Holded",
       "account": "Account"
     },
     "links": {
+      "customers": { "label": "Customers", "description": "Fiscal accounts and delegates." },
       "calendar": {
         "label": "Calendar",
         "description": "View events from the connected ICS calendar."
@@ -1228,7 +1247,8 @@
         "HOLDED": "Holded",
         "GRAVITY_FORMS": "Gravity Forms",
         "BOOKING_MAIL": "Notification email",
-        "CALENDAR_ICS": "ICS calendar"
+        "CALENDAR_ICS": "ICS calendar",
+        "WORDPRESS": "WordPress"
       },
       "choose": "Choose an option"
     }

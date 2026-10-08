@@ -39,6 +39,7 @@ function stubClient(options: StubOptions = {}) {
   };
 
   const client: HoldedClient = {
+    listFiscalContacts: vi.fn(async () => []),
     ping: vi.fn(async () => {
       track("ping", () => undefined);
     }),

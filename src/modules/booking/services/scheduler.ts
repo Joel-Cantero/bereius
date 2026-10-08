@@ -7,6 +7,7 @@ import {
   processBankSync,
 } from "@/modules/banking/services/synchronization";
 import { runBankRetention } from "@/modules/banking/services/retention";
+import { runAutomaticCustomerSync, retainCustomerHistory } from "@/modules/customers/services/management";
 import { expireUnpaidBookings } from "@/modules/booking/services/expiry";
 import { runIntake } from "@/modules/booking/services/intake";
 import { drainOutbox, type JobHandler } from "@/modules/booking/services/outbox";
@@ -28,6 +29,7 @@ export const SCHEDULES = {
   outbox: 60_000,
   expiry: 24 * HOUR_MS,
   retention: 24 * HOUR_MS,
+  customers: 24 * HOUR_MS,
 } as const;
 
 const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
@@ -53,7 +55,8 @@ const TASKS: Readonly<Record<TaskName, () => Promise<unknown>>> = {
   intake: () => runIntake(),
   outbox: () => drainOutbox(JOB_HANDLERS),
   expiry: () => expireUnpaidBookings(),
-  retention: () => runBankRetention(),
+  retention: async () => { await runBankRetention(); await retainCustomerHistory(); },
+  customers: () => runAutomaticCustomerSync(),
 };
 
 export interface SchedulerHandle {

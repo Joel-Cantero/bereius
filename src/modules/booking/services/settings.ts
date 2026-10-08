@@ -15,6 +15,7 @@ import {
   type HoldedOption,
 } from "@/lib/holded/client";
 import { logger } from "@/lib/logger";
+import { wordpressConfigSchema } from "@/modules/customers/schema";
 import {
   DEFAULT_GRAVITY_FORM_FIELDS,
   gravityFormFieldMapSchema,
@@ -98,6 +99,7 @@ const CONFIG_SCHEMAS = {
   HOLDED: holdedConfigSchema,
   BOOKING_MAIL: bookingMailConfigSchema,
   CALENDAR_ICS: z.object({}).strict(),
+  WORDPRESS: wordpressConfigSchema,
 } as const satisfies Record<IntegrationProvider, z.ZodType>;
 
 export type GravityFormsConfig = z.infer<typeof gravityFormsConfigSchema>;
@@ -199,6 +201,7 @@ export async function saveIntegrationSettings<P extends IntegrationProvider>(
     },
     update: {
       config: parsed.data as object,
+      ...(command.provider === "WORDPRESS" ? { verifiedAt: null } : {}),
       // A saved credential is replaced, never cleared by an unrelated edit.
       ...(sealed
         ? {

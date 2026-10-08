@@ -50,6 +50,8 @@ model User {
   bankProposalsDecided       BankReconciliationProposal[] @relation("BankProposalsDecided")
   calendarBookingsLinked     CalendarBookingLink[]        @relation("CalendarBookingsLinked")
   calendarBookingAuditEvents CalendarBookingAuditEvent[]
+  customerSyncRuns            CustomerSyncRun[]
+  customerAdminEvents         CustomerAdminEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -175,6 +177,7 @@ enum IntegrationProvider {
   GRAVITY_FORMS
   BOOKING_MAIL
   CALENDAR_ICS
+  WORDPRESS
 }
 
 enum DocumentDeliveryStatus {
@@ -497,6 +500,50 @@ model IntegrationSettings {
   updatedAt        DateTime            @updatedAt
 
   updatedBy User? @relation("IntegrationSettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+enum CustomerSyncStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum CustomerSyncMode {
+  PREVIEW
+  APPLY
+}
+
+model CustomerSyncRun {
+  id              String             @id @default(cuid())
+  mode            CustomerSyncMode
+  status          CustomerSyncStatus @default(RUNNING)
+  requestedById   String?
+  settingsVersion String
+  leaseToken      String             @unique
+  leaseExpiresAt  DateTime
+  results         Json?
+  failureCode     String?
+  startedAt       DateTime           @default(now())
+  finishedAt      DateTime?
+
+  requestedBy User? @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([status, leaseExpiresAt])
+  @@index([startedAt])
+}
+
+model CustomerAdminEvent {
+  id          String   @id @default(cuid())
+  actorId     String?
+  operation   String
+  principalId Int?
+  delegateId  Int?
+  outcome     String
+  createdAt   DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
 }
 
 model HoldedTreasuryAccount {

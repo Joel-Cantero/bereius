@@ -291,6 +291,7 @@ const contactSchema = z
   .catchall(z.unknown());
 
 const delegateCodeSuffixSchema = z.string().regex(/^[1-9]\d*:[1-9]\d*$/u);
+export type HoldedFiscalContact = z.infer<typeof contactSchema>;
 const delegateEmailSchema = z.email().max(320);
 
 const contactPageSchema = z
@@ -542,6 +543,7 @@ export interface HoldedClient {
   updateContact(contactId: string, input: HoldedContactInput): Promise<void>;
   /** Linked WordPress-managed people that must receive estimate copies. */
   listDelegateEmails(contactId: string): Promise<string[]>;
+  listFiscalContacts(): Promise<HoldedFiscalContact[]>;
   listEstimatesByContact(
     contactId: string,
     options?: HoldedReadOptions,
@@ -1315,6 +1317,30 @@ export function createHoldedClient(
           `${credentialScope}:contact:detail:${contactId}`,
         );
       }
+    },
+
+    async listFiscalContacts() {
+      const items: HoldedFiscalContact[] = [];
+      const cursors = new Set<string>();
+      let cursor: string | null = null;
+      for (let page = 0; page < HOLDED_MAX_CATALOGUE_PAGES; page++) {
+        const query = new URLSearchParams({ limit: String(HOLDED_CATALOGUE_PAGE_SIZE) });
+        if (cursor) query.set("cursor", cursor);
+        const parsed = contactPageSchema.extend({ has_more: z.boolean() }).safeParse(await request("GET", `/contacts?${query}`));
+        if (!parsed.success || parsed.data.items.length > HOLDED_CATALOGUE_PAGE_SIZE
+          || parsed.data.has_more && !parsed.data.items.length) {
+          throw new HoldedError("malformed_response", "Incomplete fiscal contact snapshot");
+        }
+        items.push(...parsed.data.items);
+        if (!parsed.data.has_more) {
+          if (parsed.data.cursor) throw new HoldedError("malformed_response", "Inconsistent fiscal contact pagination");
+          return items;
+        }
+        const next = parsed.data.cursor?.trim();
+        if (!next || cursors.has(next)) throw new HoldedError("malformed_response", "Invalid fiscal contact cursor");
+        cursors.add(next); cursor = next;
+      }
+      throw new HoldedError("malformed_response", "Fiscal contact snapshot exceeded its page limit");
     },
 
     async listDelegateEmails(contactId) {

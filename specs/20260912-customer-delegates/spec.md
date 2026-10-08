@@ -12,6 +12,12 @@ booking.
 
 ## System Contract
 
+**Administrative supersession (2026-10-08)**: `20261008-customer-account-management` supersedes
+FR-010 and the blanket no-WordPress-call statements below only for privileged principal
+reconciliation and delegate administration. WordPress remains authoritative; delivery discovery
+through Holded and frozen document recipients are unchanged. The new feature is not deployed
+by this specification update.
+
 WordPress is the sole authority for delegate identity, membership and lifecycle. It also owns the
 Holded projection: only after a delegate accepts an invitation does WordPress create a separate
 Holded person and mark it with

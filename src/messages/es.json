@@ -1,4 +1,21 @@
 {
+  "Customers": {
+    "title": "Clientes", "search": "Buscar clientes", "empty": "Sin clientes", "unavailable": "WordPress no está disponible o no está configurado.",
+    "selectCustomer": "Ningún cliente seleccionado", "delegates": "Delegados", "noDelegates": "Sin delegados", "invite": "Invitar delegado",
+    "settings": "Conexión WordPress", "origin": "Origen HTTPS", "username": "Usuario de servicio", "password": "Contraseña de aplicación",
+    "synchronization": "Sincronización", "writesEnabled": "Permitir actualizar principales", "automaticSync": "Sincronización diaria",
+    "save": "Guardar", "verify": "Verificar conexión", "preview": "Simular", "apply": "Sincronizar", "history": "Historial", "noRuns": "Sin ejecuciones",
+    "close": "Cerrar", "cancel": "Cancelar", "revoke": "Revocar acceso", "resend": "Reenviar invitación", "reinvite": "Volver a invitar",
+    "revokeTitle": "¿Revocar el acceso?", "revokeBody": "El delegado perderá el acceso inmediatamente. La cuenta se conservará.", "review": "Revisión pendiente", "runFailed": "La ejecución no se ha completado.",
+    "fields": { "first_name": "Nombre", "last_name": "Apellidos", "email": "Correo electrónico", "phone": "Teléfono" },
+    "statuses": { "pending": "Invitación pendiente", "active": "Activo", "revoked": "Revocado" },
+    "projection": { "queued": "Holded pendiente", "retrying": "Holded en reintento", "idle": "Sin proyección pendiente" },
+    "outcomes": { "saved": "Guardado", "verified": "Conexión verificada", "completed": "Ejecución completada" },
+    "modes": { "PREVIEW": "Simulación", "APPLY": "Sincronización" },
+    "runStatuses": { "RUNNING": "En curso", "SUCCEEDED": "Completada", "FAILED": "Fallida" },
+    "changes": { "create": "Creaciones", "update": "Actualizaciones", "unchanged": "Sin cambios", "conflict": "Conflictos", "orphan_review": "Ausentes de Holded" },
+    "errors": { "invalid": "Revisa los datos del formulario.", "forbidden": "Se requiere una sesión de administrador.", "connection": "No se ha podido confirmar la operación.", "unknown": "Resultado desconocido. No se ha repetido el envío.", "writes_disabled": "Las escrituras no están habilitadas o la conexión no está verificada.", "preview_required": "Se requiere una simulación reciente con esta configuración.", "sync_busy": "Ya hay una sincronización en curso.", "rate_limited": "Se ha alcanzado el límite temporal de operaciones.", "settings_changed": "La configuración ha cambiado durante la ejecución." }
+  },
   "Email": {
     "loginMagicLink": {
       "subject": "Tu código de acceso a {productName}",
@@ -212,11 +229,13 @@
     "logout": "Cerrar sesión",
     "sections": {
       "calendar": "Calendario",
+      "customers": "Clientes",
       "bookings": "Reservas",
       "holded": "Holded",
       "account": "Cuenta"
     },
     "links": {
+      "customers": { "label": "Clientes", "description": "Cuentas fiscales y delegados." },
       "calendar": {
         "label": "Calendario",
         "description": "Consulta los eventos del calendario ICS conectado."
@@ -1228,7 +1247,8 @@
         "HOLDED": "Holded",
         "GRAVITY_FORMS": "Gravity Forms",
         "BOOKING_MAIL": "Correo de notificaciones",
-        "CALENDAR_ICS": "Calendario ICS"
+        "CALENDAR_ICS": "Calendario ICS",
+        "WORDPRESS": "WordPress"
       },
       "choose": "Elige una opción"
     }

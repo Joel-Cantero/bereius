@@ -47,6 +47,8 @@ else
   )
 fi
 
+PLAYWRIGHT_ARGS+=("$@")
+
 COMPOSE_FILE="docker-compose.e2e.yml"
 PROJECT="webapp-template-e2e-$$-$RANDOM"
 export NEXT_DIST_DIR="$(mktemp -d .next-e2e-XXXXXX)"
