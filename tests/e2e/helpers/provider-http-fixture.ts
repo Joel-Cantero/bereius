@@ -11,7 +11,10 @@ type ProviderTarget =
   | "mailjet.health"
   | "mailjet.send"
   | "holded.accounts"
-  | "holded.movements";
+  | "holded.movements"
+  | "wordpress.customers"
+  | "wordpress.delegations"
+  | "wordpress.action";
 
 interface ProviderBehavior {
   status: number;
@@ -42,6 +45,9 @@ const targetByPath = new Map<string, ProviderTarget>([
   ["/provider/brevo/send", "brevo.send"],
   ["/provider/mailjet/health", "mailjet.health"],
   ["/provider/mailjet/send", "mailjet.send"],
+  ["/provider/wordpress/wp-json/berea/v1/admin/customers", "wordpress.customers"],
+  ["/provider/wordpress/wp-json/berea/v1/admin/delegations", "wordpress.delegations"],
+  ["/provider/wordpress/wp-json/berea/v1/admin/delegations/action", "wordpress.action"],
 ]);
 const logicalUrlByTarget: Record<ProviderTarget, string> = {
   "brevo.health": "https://api.brevo.com/v3/account",
@@ -50,6 +56,9 @@ const logicalUrlByTarget: Record<ProviderTarget, string> = {
   "mailjet.send": "https://api.mailjet.com/v3.1/send",
   "holded.accounts": "https://api.holded.com/api/v2/treasury/accounts",
   "holded.movements": "https://api.holded.com/api/v2/treasury/accounts",
+  "wordpress.customers": "https://wordpress.example.test/wp-json/berea/v1/admin/customers",
+  "wordpress.delegations": "https://wordpress.example.test/wp-json/berea/v1/admin/delegations",
+  "wordpress.action": "https://wordpress.example.test/wp-json/berea/v1/admin/delegations/action",
 };
 const providerTargets = new Set<ProviderTarget>([
   "brevo.health",
@@ -58,6 +67,7 @@ const providerTargets = new Set<ProviderTarget>([
   "mailjet.send",
   "holded.accounts",
   "holded.movements",
+  "wordpress.customers", "wordpress.delegations", "wordpress.action",
 ]);
 const requests: CapturedRequest[] = [];
 const behaviors: ProviderBehaviorRule[] = [];
@@ -72,7 +82,7 @@ function resolveProviderRequest(url: URL): {
 } | null {
   const fixedTarget = targetByPath.get(url.pathname);
   if (fixedTarget) {
-    return { target: fixedTarget, logicalUrl: logicalUrlByTarget[fixedTarget] };
+    return { target: fixedTarget, logicalUrl: logicalUrlByTarget[fixedTarget] + url.search };
   }
 
   const prefix = "/provider/holded";
@@ -114,7 +124,33 @@ async function readBody(request: IncomingMessage) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+const wordpressDelegates: Record<string, unknown>[] = [];
+
 function defaultResponse(target: ProviderTarget, body: string): ProviderBehavior {
+  if (target === "wordpress.customers") {
+    return { status: 200, body: JSON.stringify({ page: 1, has_more: false, items: [{ id: 100001, holded_contact_id: "a".repeat(24), name: "Synthetic fiscal customer", email: "fiscal@example.test", managed: true, meta: { holded_vat_number: "TEST-TAX", billing_city: "Test city" } }] }) };
+  }
+  if (target === "wordpress.delegations" && !body) {
+    return { status: 200, body: JSON.stringify({ principal_id: 100001, holded_contact_id: "a".repeat(24), delegates: wordpressDelegates }) };
+  }
+  if (target.startsWith("wordpress.")) {
+    const command = JSON.parse(body) as Record<string, unknown>;
+    if (target === "wordpress.delegations") {
+      const existing = wordpressDelegates.find((delegate) => delegate.email === command.email);
+      if (existing) return { status: 200, body: JSON.stringify({ delegate_id: existing.id, status: existing.status, created: false }) };
+      const delegate = { ...command, id: 200001 + wordpressDelegates.length, status: "pending", generation: 1, invited_at: "2026-10-08 12:00:00", holded_person_id: "", projection_status: "idle" };
+      wordpressDelegates.push(delegate);
+      return { status: 201, body: JSON.stringify({ delegate_id: delegate.id, status: delegate.status, created: true }) };
+    }
+    const delegate = wordpressDelegates.find((item) => item.id === command.delegate_id);
+    if (!delegate || delegate.generation !== command.generation || delegate.status !== command.expected_status) return { status: 409, body: JSON.stringify({ code: "berea_delegacion_desactualizada" }) };
+    if (command.action === "revoke") delegate.status = "revoked";
+    if (command.action === "reinvite" || command.action === "update" && command.email !== delegate.email) {
+      delegate.status = "pending"; delegate.generation = Number(delegate.generation) + 1;
+    }
+    if (command.action === "update") for (const key of ["first_name", "last_name", "email", "phone"]) delegate[key] = command[key];
+    return { status: 200, body: JSON.stringify(delegate) };
+  }
   if (target.startsWith("holded.")) {
     return {
       status: 200,

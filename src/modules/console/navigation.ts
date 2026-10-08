@@ -70,6 +70,7 @@ export async function buildConsoleNavigation(
       initials: getProfileInitials({ name: session?.user?.name ?? null, email }),
     },
     sections: [
+      ...(actor.role === "ADMINISTRATOR" ? [{ key: "customers", label: t("sections.customers"), links: [{ href: "/customers", label: t("links.customers.label"), description: t("links.customers.description") }] }] : []),
       {
         key: "bookings",
         label: t("sections.bookings"),

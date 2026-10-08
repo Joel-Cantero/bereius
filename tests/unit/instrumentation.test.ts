@@ -19,6 +19,10 @@ const schedulerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/modules/customers/services/management", () => ({
+  runAutomaticCustomerSync: vi.fn(async () => ({ processed: false })),
+  retainCustomerHistory: vi.fn(async () => undefined),
+}));
 vi.mock("@/lib/env", () => ({ getEnv: getEnvMock }));
 vi.mock("@/lib/logger", () => ({
   logger: { error: schedulerMocks.loggerError, info: schedulerMocks.loggerInfo },
@@ -153,6 +157,7 @@ describe("booking worker scheduler", () => {
 
   it("registers banking sweeps plus daily expiry and retention", () => {
     expect(SCHEDULES).toEqual({
+      customers: 86_400_000,
       banking: 60_000,
       intake: 3_600_000,
       outbox: 60_000,

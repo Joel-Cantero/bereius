@@ -30,6 +30,9 @@ https.request = (...args) => {
   if (logicalUrl?.origin === "https://calendar.example.test" && logicalUrl.pathname === "/feed.ics") {
     return httpRequest(new URL("/calendar.ics", fixtureUrl), { ...args[1], lookup: undefined }, args[2]);
   }
+  if (logicalUrl?.origin === "https://wordpress.example.test" && logicalUrl.pathname.startsWith("/wp-json/berea/v1/admin/")) {
+    return httpRequest(new URL(`/provider/wordpress${logicalUrl.pathname}${logicalUrl.search}`, fixtureUrl), { ...args[1], lookup: undefined }, args[2]);
+  }
   return nativeHttpsRequest(...args);
 };
 syncBuiltinESMExports();

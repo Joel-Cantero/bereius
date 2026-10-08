@@ -1,4 +1,21 @@
 {
+  "Customers": {
+    "title": "Clients", "search": "Cerca clients", "empty": "Cap client", "unavailable": "WordPress no està disponible o no està configurat.",
+    "selectCustomer": "Cap client seleccionat", "delegates": "Delegats", "noDelegates": "Cap delegat", "invite": "Convida un delegat",
+    "settings": "Connexió WordPress", "origin": "Origen HTTPS", "username": "Usuari de servei", "password": "Contrasenya d'aplicació",
+    "synchronization": "Sincronització", "writesEnabled": "Permet actualitzar principals", "automaticSync": "Sincronització diària",
+    "save": "Desa", "verify": "Verifica la connexió", "preview": "Simula", "apply": "Sincronitza", "history": "Historial", "noRuns": "Cap execució",
+    "close": "Tanca", "cancel": "Cancel·la", "revoke": "Revoca l'accés", "resend": "Reenvia la invitació", "reinvite": "Torna a convidar",
+    "revokeTitle": "Revocar l'accés?", "revokeBody": "El delegat perdrà l'accés immediatament. El compte es conservarà.", "review": "Revisió pendent", "runFailed": "L'execució no s'ha completat.",
+    "fields": { "first_name": "Nom", "last_name": "Cognoms", "email": "Correu electrònic", "phone": "Telèfon" },
+    "statuses": { "pending": "Invitació pendent", "active": "Actiu", "revoked": "Revocat" },
+    "projection": { "queued": "Holded pendent", "retrying": "Holded en reintent", "idle": "Sense projecció pendent" },
+    "outcomes": { "saved": "Desat", "verified": "Connexió verificada", "completed": "Execució completada" },
+    "modes": { "PREVIEW": "Simulació", "APPLY": "Sincronització" },
+    "runStatuses": { "RUNNING": "En curs", "SUCCEEDED": "Completada", "FAILED": "Fallida" },
+    "changes": { "create": "Creacions", "update": "Actualitzacions", "unchanged": "Sense canvis", "conflict": "Conflictes", "orphan_review": "Absents de Holded" },
+    "errors": { "invalid": "Revisa les dades del formulari.", "forbidden": "Cal una sessió d'administrador.", "connection": "No s'ha pogut confirmar l'operació.", "unknown": "Resultat desconegut. No s'ha repetit l'enviament.", "writes_disabled": "Les escriptures no estan habilitades o la connexió no està verificada.", "preview_required": "Cal una simulació recent amb aquesta configuració.", "sync_busy": "Ja hi ha una sincronització en curs.", "rate_limited": "S'ha arribat al límit temporal d'operacions.", "settings_changed": "La configuració ha canviat durant l'execució." }
+  },
   "Email": {
     "loginMagicLink": {
       "subject": "El teu codi d'accés a {productName}",
@@ -212,11 +229,13 @@
     "logout": "Tanca la sessió",
     "sections": {
       "calendar": "Calendari",
+      "customers": "Clients",
       "bookings": "Reserves",
       "holded": "Holded",
       "account": "Compte"
     },
     "links": {
+      "customers": { "label": "Clients", "description": "Comptes fiscals i delegats." },
       "calendar": {
         "label": "Calendari",
         "description": "Consulta els esdeveniments del calendari ICS connectat."
@@ -1228,7 +1247,8 @@
         "HOLDED": "Holded",
         "GRAVITY_FORMS": "Gravity Forms",
         "BOOKING_MAIL": "Correu de notificacions",
-        "CALENDAR_ICS": "Calendari ICS"
+        "CALENDAR_ICS": "Calendari ICS",
+        "WORDPRESS": "WordPress"
       },
       "choose": "Tria una opció"
     }
