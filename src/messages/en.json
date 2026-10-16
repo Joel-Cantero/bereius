@@ -1034,11 +1034,13 @@
     },
     "actions": {
       "approve": "Approve",
+      "approveWithoutEmail": "Approve without sending email",
       "reject": "Reject",
       "cancel": "Cancel booking",
       "reasonLabel": "Reason",
       "reasonHint": "Recorded in the history and sent to the requester.",
       "recordPayment": "Record payment",
+      "sendQuote": "Send quote",
       "resendQuote": "Send quote again",
       "queuingQuote": "Queuing the quote...",
       "quoteQueued": "Request recorded. The quote is pending processing.",

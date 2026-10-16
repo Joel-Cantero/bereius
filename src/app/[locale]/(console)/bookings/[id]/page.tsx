@@ -19,6 +19,7 @@ import {
 } from "@/modules/booking/actions/contact";
 import {
   approveBookingAction,
+  approveBookingWithoutEmailAction,
   cancelBookingAction,
   recordPaymentAction,
   rejectBookingAction,
@@ -121,6 +122,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
     reserveInvoiceStatus === "reserveInvoiceDeliveryUnknown";
   const canResendQuote = booking.state === "AWAITING_PAYMENT" ||
     (linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state));
+  const linkedEstimateUnsent =
+    linkedEstimate !== undefined && !linkedEstimate.sentAt && !linkedEstimate.delivery;
 
   // Linking an estimate approves the request, so the picker is only offered
   // while the request is under review and nothing is linked yet, and only for
@@ -401,6 +404,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             action={resendQuoteAction}
             bookingRequestId={booking.id}
             disabled={hasUnknownEstimateDelivery || linkedEstimate?.delivery?.status === "IN_FLIGHT"}
+            label={t(linkedEstimateUnsent ? "actions.sendQuote" : "actions.resendQuote")}
           />
         ) : null}
       </section>
@@ -434,6 +438,16 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             bookingRequestId={booking.id}
             expectedFrom="IN_REVIEW"
             label={t("actions.approve")}
+          />
+        ) : null}
+
+        {booking.state === "IN_REVIEW" ? (
+          <DecisionForm
+            action={approveBookingWithoutEmailAction}
+            bookingRequestId={booking.id}
+            expectedFrom="IN_REVIEW"
+            label={t("actions.approveWithoutEmail")}
+            variant="secondary"
           />
         ) : null}
 

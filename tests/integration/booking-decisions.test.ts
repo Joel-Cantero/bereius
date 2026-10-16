@@ -146,6 +146,20 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     ).resolves.toBe(1);
   });
 
+  it("approving without email queues a held quote and leaves the payment window closed", async () => {
+    const actor = await operator();
+    const request = await booking("IN_REVIEW");
+
+    await approveBooking({ bookingRequestId: request.id, actorUserId: actor.id, sendQuote: false });
+
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+    ).resolves.toMatchObject({ state: "AWAITING_PAYMENT", paymentDueAt: null });
+    await expect(
+      db.integrationJob.findUniqueOrThrow({ where: { idempotencyKey: `${QUOTE_JOB_KIND}:${request.id}` } }),
+    ).resolves.toMatchObject({ payload: { bookingRequestId: request.id, send: false } });
+  });
+
   it("queues the quote exactly once even if approval is attempted twice", async () => {
     const actor = await operator();
     const request = await booking("IN_REVIEW");

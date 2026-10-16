@@ -18,6 +18,11 @@ export interface DecisionCommand {
   expectedFrom?: "IN_REVIEW";
 }
 
+export interface ApprovalCommand extends DecisionCommand {
+  /** False leaves the estimate in Holded for review until it is sent on request. */
+  sendQuote?: boolean;
+}
+
 async function notify(
   bookingRequestId: string,
   event: string,
@@ -44,7 +49,9 @@ async function notify(
  * to awaiting payment. The decision is a local write and the external calls go
  * to the outbox, so an approval is never lost because Holded was unreachable.
  */
-export async function approveBooking(command: DecisionCommand): Promise<void> {
+export async function approveBooking(command: ApprovalCommand): Promise<void> {
+  const sendQuote = command.sendQuote ?? true;
+
   await transitionBooking({
     bookingRequestId: command.bookingRequestId,
     to: "AWAITING_PAYMENT",
@@ -52,15 +59,18 @@ export async function approveBooking(command: DecisionCommand): Promise<void> {
     expectedFrom: command.expectedFrom ?? "IN_REVIEW",
   });
 
-  await db.bookingRequest.update({
-    where: { id: command.bookingRequestId },
-    data: { paymentDueAt: paymentDeadlineFrom(new Date()) },
-  });
+  // A held quote opens the payment window when it is sent, not before.
+  if (sendQuote) {
+    await db.bookingRequest.update({
+      where: { id: command.bookingRequestId },
+      data: { paymentDueAt: paymentDeadlineFrom(new Date()) },
+    });
+  }
 
-  await enqueueQuote(command.bookingRequestId);
+  await enqueueQuote(command.bookingRequestId, { send: sendQuote });
 
   logger.info(
-    { event: "booking_approved", bookingRequestId: command.bookingRequestId },
+    { event: "booking_approved", bookingRequestId: command.bookingRequestId, sendQuote },
     "booking approved",
   );
 }

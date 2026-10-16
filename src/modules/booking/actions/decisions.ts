@@ -77,9 +77,9 @@ function refresh(bookingRequestId: string) {
   revalidatePath(`/bookings/${bookingRequestId}`);
 }
 
-export async function approveBookingAction(
-  _previous: DecisionActionState,
+async function approve(
   formData: FormData,
+  sendQuote: boolean,
 ): Promise<DecisionActionState> {
   try {
     const actor = await requireBookingActor();
@@ -88,7 +88,7 @@ export async function approveBookingAction(
       expectedFrom: formData.get("expectedFrom") ?? undefined,
     });
 
-    await approveBooking({ ...input, actorUserId: actor.userId });
+    await approveBooking({ ...input, actorUserId: actor.userId, sendQuote });
     refresh(input.bookingRequestId);
     return { status: "done" };
   } catch (error) {
@@ -98,6 +98,20 @@ export async function approveBookingAction(
     );
     return toErrorState(error);
   }
+}
+
+export async function approveBookingAction(
+  _previous: DecisionActionState,
+  formData: FormData,
+): Promise<DecisionActionState> {
+  return approve(formData, true);
+}
+
+export async function approveBookingWithoutEmailAction(
+  _previous: DecisionActionState,
+  formData: FormData,
+): Promise<DecisionActionState> {
+  return approve(formData, false);
 }
 
 export async function rejectBookingAction(

@@ -1034,11 +1034,13 @@
     },
     "actions": {
       "approve": "Aprova",
+      "approveWithoutEmail": "Aprova sense enviar correu",
       "reject": "Rebutja",
       "cancel": "Cancel·la la reserva",
       "reasonLabel": "Motiu",
       "reasonHint": "Queda a l'historial i s'envia al sol·licitant.",
       "recordPayment": "Registra el pagament",
+      "sendQuote": "Enviar el pressupost",
       "resendQuote": "Enviar de nou el pressupost",
       "queuingQuote": "Posant el pressupost en cua...",
       "quoteQueued": "Petició registrada. El pressupost està pendent de processament.",

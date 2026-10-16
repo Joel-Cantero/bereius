@@ -87,10 +87,11 @@ export function DecisionForm({
   );
 }
 
-export function QuoteResendForm({ action, bookingRequestId, disabled = false }: {
+export function QuoteResendForm({ action, bookingRequestId, disabled = false, label }: {
   action: DecisionAction;
   bookingRequestId: string;
   disabled?: boolean;
+  label?: string;
 }) {
   const t = useTranslations("Bookings.actions");
   const [state, formAction, pending] = useActionState(action, IDLE);
@@ -100,7 +101,7 @@ export function QuoteResendForm({ action, bookingRequestId, disabled = false }: 
       <input type="hidden" name="bookingRequestId" value={bookingRequestId} />
       <Button type="submit" variant="outline" disabled={disabled || pending || state.status === "done"}>
         {pending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Send aria-hidden="true" />}
-        {t("resendQuote")}
+        {label ?? t("resendQuote")}
       </Button>
       {pending ? <p role="status" className="text-sm text-muted-foreground">{t("queuingQuote")}</p> : null}
       {state.status === "done" ? <p role="status" className="text-sm text-muted-foreground">{t("quoteQueued")}</p> : null}

@@ -179,7 +179,7 @@ test("takes a request from review to awaiting payment and records the decision",
   await page.goto(`/bookings/${booking.id}`);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 
-  await page.getByRole("button", { name: "Approve" }).click();
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
 
   await expect.poll(() => readBookingState(booking.id)).toBe("AWAITING_PAYMENT");
 
@@ -190,6 +190,31 @@ test("takes a request from review to awaiting payment and records the decision",
 
   // The Holded work is queued, never performed inside the operator's request.
   expect(await countQueuedQuotes(booking.id)).toBe(1);
+});
+
+test("approves a request without sending the quote email", async ({ page, context, baseURL }) => {
+  const seeded = await seedAuthenticatedUser({ name: "Operator" });
+  await installAuthSessionCookie(context, seeded.sessionToken, baseURL ?? "http://127.0.0.1:3100");
+  const booking = await seedBookingRequest();
+
+  await page.goto(`/es/bookings/${booking.id}`);
+  await page.getByRole("button", { name: esMessages.Bookings.actions.approveWithoutEmail }).click();
+
+  await expect.poll(() => readBookingState(booking.id)).toBe("AWAITING_PAYMENT");
+  const pool = getPool();
+  try {
+    const result = await pool.query<{ payload: unknown; paymentDueAt: Date | null }>(
+      `SELECT j."payload", b."paymentDueAt" FROM "BookingRequest" b
+       JOIN "IntegrationJob" j ON j."idempotencyKey" = 'booking.quote:' || b."id"
+       WHERE b."id" = $1`,
+      [booking.id],
+    );
+    expect(result.rows).toEqual([
+      { payload: { bookingRequestId: booking.id, send: false }, paymentDueAt: null },
+    ]);
+  } finally {
+    await pool.end();
+  }
 });
 
 test("requires a reason to reject and records it", async ({ page, context, baseURL }) => {

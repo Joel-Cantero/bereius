@@ -76,6 +76,7 @@ vi.mock("@/modules/booking/actions/contact", () => ({
 }));
 vi.mock("@/modules/booking/actions/decisions", () => ({
   approveBookingAction: vi.fn(),
+  approveBookingWithoutEmailAction: vi.fn(),
   cancelBookingAction: vi.fn(),
   recordPaymentAction: vi.fn(),
   rejectBookingAction: vi.fn(),
@@ -239,6 +240,30 @@ describe("booking detail estimate delivery warning", () => {
     mocks.getBookingDetail.mockResolvedValue(bookingWithDelivery("UNKNOWN"));
     render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
     expect(screen.getByRole("button", { name: enMessages.Bookings.actions.resendQuote })).toBeDisabled();
+  });
+
+  it("offers approval without sending the quote email while the request is in review", async () => {
+    mocks.getBookingDetail.mockResolvedValue({
+      ...bookingWithDelivery("ACCEPTED"),
+      state: "IN_REVIEW",
+      documents: [],
+    });
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.getByRole("button", { name: enMessages.Bookings.actions.approve })).toBeEnabled();
+    expect(screen.getByRole("button", { name: enMessages.Bookings.actions.approveWithoutEmail })).toBeEnabled();
+  });
+
+  it("offers the first send of an estimate that was issued without email", async () => {
+    mocks.getBookingDetail.mockResolvedValue({
+      ...bookingWithDelivery("ACCEPTED"),
+      state: "AWAITING_PAYMENT",
+      documents: [
+        { id: "document-1", type: "ESTIMATE", holdedId: "estimate-1", documentNumber: "P-1", sentAt: null, delivery: null },
+      ],
+    });
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.getByRole("button", { name: enMessages.Bookings.actions.sendQuote })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: enMessages.Bookings.actions.resendQuote })).not.toBeInTheDocument();
   });
 
   it("shows durable document events in the lifecycle history", async () => {
