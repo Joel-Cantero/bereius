@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useTranslations } from "next-intl";
-import { LoaderCircle, Send } from "lucide-react";
+import { Check, LoaderCircle, Pencil, Send, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { DecisionActionState } from "@/modules/booking/actions/decisions";
 
 type DecisionAction = (
@@ -105,6 +106,81 @@ export function QuoteResendForm({ action, bookingRequestId, disabled = false, la
       </Button>
       {pending ? <p role="status" className="text-sm text-muted-foreground">{t("queuingQuote")}</p> : null}
       {state.status === "done" ? <p role="status" className="text-sm text-muted-foreground">{t("quoteQueued")}</p> : null}
+      <ErrorMessage state={state} />
+    </form>
+  );
+}
+
+export function AdvanceEditor({
+  action,
+  bookingRequestId,
+  amountLabel,
+  defaultAmount,
+}: {
+  action: DecisionAction;
+  bookingRequestId: string;
+  /** The advance already formatted for the page locale. */
+  amountLabel: string;
+  /** The advance in euros, as the input's starting value. */
+  defaultAmount: string;
+}) {
+  const t = useTranslations("Bookings.actions");
+  const [state, formAction, pending] = useActionState(action, IDLE);
+  // The state seen when editing opened; a newer successful result closes the editor.
+  const [openedFrom, setOpenedFrom] = useState<DecisionActionState | null>(null);
+  const editing = openedFrom !== null && (state === openedFrom || state.status === "error");
+  const inputId = `advance-${bookingRequestId}`;
+
+  if (!editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        {amountLabel}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-xs"
+          aria-label={t("editAdvance")}
+          title={t("editAdvance")}
+          onClick={() => setOpenedFrom(state)}
+        >
+          <Pencil aria-hidden="true" />
+        </Button>
+      </span>
+    );
+  }
+
+  return (
+    <form action={formAction} className="flex flex-col gap-1">
+      <input type="hidden" name="bookingRequestId" value={bookingRequestId} />
+      <label htmlFor={inputId} className="sr-only">
+        {t("advanceLabel")}
+      </label>
+      <span className="inline-flex items-center gap-1">
+        <Input
+          id={inputId}
+          name="advance"
+          type="number"
+          step="0.01"
+          min="0"
+          required
+          autoFocus
+          defaultValue={defaultAmount}
+          className="w-32"
+        />
+        <Button type="submit" variant="ghost" size="icon-sm" aria-label={t("saveAdvance")} disabled={pending}>
+          {pending ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Check aria-hidden="true" />}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label={t("cancelEdit")}
+          disabled={pending}
+          onClick={() => setOpenedFrom(null)}
+        >
+          <X aria-hidden="true" />
+        </Button>
+      </span>
       <ErrorMessage state={state} />
     </form>
   );
