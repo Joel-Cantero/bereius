@@ -23,11 +23,12 @@ import {
   cancelBookingAction,
   recordPaymentAction,
   rejectBookingAction,
+  updateAdvanceAction,
 } from "@/modules/booking/actions/decisions";
 import { AuthorizationError, requireBookingActor } from "@/modules/booking/authorization";
 import { ContactSyncButton } from "@/modules/booking/components/contact-sync";
 import { resendQuoteAction } from "@/modules/booking/actions/quotes";
-import { DecisionForm, PaymentForm, QuoteResendForm } from "@/modules/booking/components/decision-forms";
+import { AdvanceEditor, DecisionForm, PaymentForm, QuoteResendForm } from "@/modules/booking/components/decision-forms";
 import { BookingStateBadge } from "@/modules/booking/components/state-badge";
 import { BookingHistory } from "@/modules/booking/components/history";
 import { inspectCustomerContact } from "@/modules/booking/services/contact-sync";
@@ -313,7 +314,18 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         ) : (
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted-foreground">{t("detail.advance")}</dt>
-            <dd>{cents(booking.advanceCents)}</dd>
+            <dd>
+              {booking.state === "AWAITING_PAYMENT" && booking.advanceCents !== null ? (
+                <AdvanceEditor
+                  action={updateAdvanceAction}
+                  bookingRequestId={booking.id}
+                  amountLabel={cents(booking.advanceCents) ?? ""}
+                  defaultAmount={(booking.advanceCents / 100).toFixed(2)}
+                />
+              ) : (
+                cents(booking.advanceCents)
+              )}
+            </dd>
             <dt className="text-muted-foreground">{t("detail.deposit")}</dt>
             <dd>{cents(booking.depositCents)}</dd>
             <dt className="text-muted-foreground">{t("detail.toConfirm")}</dt>

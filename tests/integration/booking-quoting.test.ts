@@ -430,11 +430,13 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     const { client } = stubClient();
     vi.mocked(client.getEstimate).mockResolvedValue({
       id: document.holdedId, number: document.documentNumber, description: null, date: null,
-      totalCents: document.totalCents, status: "approved", contactId: "contact-1", contactName: null,
+      totalCents: document.totalCents, status: "pending", contactId: "contact-1", contactName: null, draft: false,
     });
     await runQuoteJob(await queuedJob(booking.id), { client, config });
 
     expect(client.sendEstimate).toHaveBeenCalledOnce();
+    // Holded rejects re-approving an estimate that is already out of draft.
+    expect(client.approveEstimate).not.toHaveBeenCalled();
     expect(client.createEstimate).not.toHaveBeenCalled();
     expect(client.replaceEstimateLines).not.toHaveBeenCalled();
     expect(client.readService).not.toHaveBeenCalled();

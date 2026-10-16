@@ -80,6 +80,7 @@ vi.mock("@/modules/booking/actions/decisions", () => ({
   cancelBookingAction: vi.fn(),
   recordPaymentAction: vi.fn(),
   rejectBookingAction: vi.fn(),
+  updateAdvanceAction: vi.fn(),
 }));
 vi.mock("@/modules/booking/actions/quotes", () => ({ resendQuoteAction: vi.fn() }));
 
@@ -264,6 +265,13 @@ describe("booking detail estimate delivery warning", () => {
     render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
     expect(screen.getByRole("button", { name: enMessages.Bookings.actions.sendQuote })).toBeEnabled();
     expect(screen.queryByRole("button", { name: enMessages.Bookings.actions.resendQuote })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: enMessages.Bookings.actions.editAdvance })).toBeEnabled();
+  });
+
+  it("does not offer to edit the advance once the booking is past payment", async () => {
+    mocks.getBookingDetail.mockResolvedValue(bookingWithDelivery("ACCEPTED"));
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.queryByRole("button", { name: enMessages.Bookings.actions.editAdvance })).not.toBeInTheDocument();
   });
 
   it("shows durable document events in the lifecycle history", async () => {

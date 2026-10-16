@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { paymentDeadlineFrom } from "@/modules/booking/services/expiry";
 import {
+  BookingTransitionError,
   transitionBooking,
   type BookingTransactionClient,
 } from "@/modules/booking/services/lifecycle";
@@ -72,6 +73,37 @@ export async function approveBooking(command: ApprovalCommand): Promise<void> {
   logger.info(
     { event: "booking_approved", bookingRequestId: command.bookingRequestId, sendQuote },
     "booking approved",
+  );
+}
+
+export interface UpdateAdvanceCommand {
+  bookingRequestId: string;
+  actorUserId: string;
+  advanceCents: number;
+}
+
+/**
+ * Overrides the advance after the operator edits the contract in Holded, so the
+ * amount expected to confirm the booking matches what the customer was asked.
+ */
+export async function updateAdvance(command: UpdateAdvanceCommand): Promise<void> {
+  // Only before payment: a confirmed booking was matched against the old amount.
+  const updated = await db.bookingRequest.updateMany({
+    where: { id: command.bookingRequestId, state: "AWAITING_PAYMENT", depositCents: { not: null } },
+    data: { advanceCents: command.advanceCents },
+  });
+  if (updated.count !== 1) {
+    throw new BookingTransitionError("state_changed", "The advance can only change while awaiting payment");
+  }
+
+  logger.info(
+    {
+      event: "booking_advance_updated",
+      bookingRequestId: command.bookingRequestId,
+      actorUserId: command.actorUserId,
+      advanceCents: command.advanceCents,
+    },
+    "booking advance updated manually",
   );
 }
 

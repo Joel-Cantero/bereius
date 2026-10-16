@@ -246,14 +246,17 @@ async function generateQuote(
     if (!estimate || !booking.customer.holdedContactId || estimate.contactId !== booking.customer.holdedContactId) {
       throw new QuotingError("incomplete_configuration", "Linked estimate could not be verified");
     }
-    await client.removeEstimateDeductions(linkedEstimate.holdedId, {
+    const corrected = await client.removeEstimateDeductions(linkedEstimate.holdedId, {
       contactId: booking.customer.holdedContactId,
       names: [DEPOSIT_LINE.name, ADVANCE_LINE.name, "Bestreta"],
       serviceIds: [config.depositServiceId, config.advanceServiceId].filter((id): id is string => Boolean(id)),
     });
     await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
-    await client.approveEstimate(linkedEstimate.holdedId);
-    await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
+    // Holded answers 400 when approving an estimate that is already out of draft.
+    if (corrected || estimate.draft !== false) {
+      await client.approveEstimate(linkedEstimate.holdedId);
+      await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
+    }
     const delivery = await prepareDocumentDelivery(linkedEstimate.id, client);
     if (delivery) {
       await deliverPreparedDocument(linkedEstimate.id, client, config.mailTemplateId, bookingManagementSubject(config.language));

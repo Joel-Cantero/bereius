@@ -16,6 +16,7 @@ import {
   PaymentError,
   recordPayment,
   rejectBooking,
+  updateAdvance,
 } from "@/modules/booking/services/decisions";
 import { BookingTransitionError } from "@/modules/booking/services/lifecycle";
 
@@ -48,6 +49,12 @@ const paymentSchema = z.object({
   amount: z.coerce.number().positive().max(1_000_000),
   receivedAt: z.coerce.date(),
   reference: z.string().trim().max(140).optional(),
+});
+
+const advanceSchema = z.object({
+  bookingRequestId: z.string().min(1),
+  // Entered in euros; converted to cents here so no float reaches the domain.
+  advance: z.string().trim().min(1).pipe(z.coerce.number<string>().min(0).max(1_000_000)),
 });
 
 function toErrorState(error: unknown): DecisionActionState {
@@ -112,6 +119,29 @@ export async function approveBookingWithoutEmailAction(
   formData: FormData,
 ): Promise<DecisionActionState> {
   return approve(formData, false);
+}
+
+export async function updateAdvanceAction(
+  _previous: DecisionActionState,
+  formData: FormData,
+): Promise<DecisionActionState> {
+  try {
+    const actor = await requireBookingActor();
+    const input = advanceSchema.parse({
+      bookingRequestId: formData.get("bookingRequestId"),
+      advance: formData.get("advance"),
+    });
+
+    await updateAdvance({
+      bookingRequestId: input.bookingRequestId,
+      actorUserId: actor.userId,
+      advanceCents: Math.round(input.advance * 100),
+    });
+    refresh(input.bookingRequestId);
+    return { status: "done" };
+  } catch (error) {
+    return toErrorState(error);
+  }
 }
 
 export async function rejectBookingAction(

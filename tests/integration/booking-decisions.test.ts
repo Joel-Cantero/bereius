@@ -13,6 +13,7 @@ import {
   PaymentError,
   recordPayment,
   rejectBooking,
+  updateAdvance,
 } from "@/modules/booking/services/decisions";
 import {
   confirmBookingPaymentCandidate,
@@ -158,6 +159,39 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     await expect(
       db.integrationJob.findUniqueOrThrow({ where: { idempotencyKey: `${QUOTE_JOB_KIND}:${request.id}` } }),
     ).resolves.toMatchObject({ payload: { bookingRequestId: request.id, send: false } });
+  });
+
+  it("overrides the advance so the amount to confirm follows the edited contract", async () => {
+    const actor = await operator();
+    const request = await booking("AWAITING_PAYMENT");
+
+    await updateAdvance({ bookingRequestId: request.id, actorUserId: actor.id, advanceCents: 30_000 });
+
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+    ).resolves.toMatchObject({ advanceCents: 30_000, depositCents: 20_000 });
+    await recordPayment({
+      bookingRequestId: request.id,
+      actorUserId: actor.id,
+      amountCents: 50_000,
+      receivedAt: new Date(),
+    });
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+    ).resolves.toMatchObject({ state: "CONFIRMED" });
+  });
+
+  it("refuses to change the advance once the booking is no longer awaiting payment", async () => {
+    const actor = await operator();
+    const request = await booking("AWAITING_PAYMENT");
+    await db.bookingRequest.update({ where: { id: request.id }, data: { state: "CONFIRMED" } });
+
+    await expect(
+      updateAdvance({ bookingRequestId: request.id, actorUserId: actor.id, advanceCents: 1 }),
+    ).rejects.toMatchObject({ code: "state_changed" });
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+    ).resolves.toMatchObject({ advanceCents: 43_200 });
   });
 
   it("queues the quote exactly once even if approval is attempted twice", async () => {
