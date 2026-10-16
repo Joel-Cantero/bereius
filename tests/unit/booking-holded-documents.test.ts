@@ -667,6 +667,7 @@ describe("Holded estimate reads", () => {
             status: "approved",
             contact_id: "c1",
             contact_name: " Escola ",
+            draft: false,
           },
         ],
       }),
@@ -682,6 +683,7 @@ describe("Holded estimate reads", () => {
         status: "approved",
         contactId: "c1",
         contactName: "Escola",
+        draft: false,
       },
     ]);
     expect(http.requests[0].logicalUrl).toContain("contact_id=c1");
