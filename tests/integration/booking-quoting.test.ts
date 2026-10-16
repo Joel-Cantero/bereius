@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { HoldedDeliveryError, type HoldedClient } from "@/lib/holded/client";
 import type { HoldedConfig } from "@/modules/booking/services/settings";
 import type { OutboxJob } from "@/modules/booking/services/outbox";
+import { paymentDeadlineFrom } from "@/modules/booking/services/expiry";
 import { quoteJobKey, requestQuoteResend, runQuoteJob } from "@/modules/booking/services/quoting";
 
 const config: HoldedConfig = {
@@ -171,6 +172,10 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
       payload: { bookingRequestId },
       attempts: 1,
     };
+  }
+
+  function heldJob(bookingRequestId: string): OutboxJob {
+    return { ...job(bookingRequestId), payload: { bookingRequestId, send: false } };
   }
 
   afterEach(async () => {
@@ -381,6 +386,78 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     ]));
     expect(JSON.stringify(events)).not.toContain("private-provider-response");
     expect(await db.documentDelivery.findUnique({ where: { holdedDocumentId: document.id } })).toMatchObject({ status: outcome === "unknown" ? "UNKNOWN" : "FAILED" });
+  });
+
+  it("issues and approves a held estimate without mailing it or opening the payment window", async () => {
+    const booking = await approvedBooking();
+    const { client } = stubClient();
+
+    await runQuoteJob(heldJob(booking.id), { client, config });
+
+    expect(client.createEstimate).toHaveBeenCalledOnce();
+    expect(client.approveEstimate).toHaveBeenCalledOnce();
+    expect(client.listDelegateEmails).not.toHaveBeenCalled();
+    expect(client.sendEstimate).not.toHaveBeenCalled();
+    await expect(
+      db.documentDelivery.count({ where: { holdedDocument: { bookingRequestId: booking.id } } }),
+    ).resolves.toBe(0);
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } }),
+    ).resolves.toMatchObject({ advanceCents: 43_200, depositCents: 20_000, paymentDueAt: null });
+    const events = await db.bookingOperationEvent.findMany({
+      where: { bookingRequestId: booking.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(events.map((event) => event.type)).toEqual(["ESTIMATE_CREATED", "ESTIMATE_APPROVED"]);
+  });
+
+  it("sends a held estimate on request without rewriting it and opens the payment window then", async () => {
+    const booking = await approvedBooking();
+    await db.integrationJob.create({ data: {
+      kind: "booking.quote", idempotencyKey: quoteJobKey(booking.id),
+      payload: { bookingRequestId: booking.id, send: false }, status: "SUCCEEDED", attempts: 1,
+    } });
+    await runQuoteJob(heldJob(booking.id), { client: stubClient().client, config });
+    const document = await db.holdedDocument.findFirstOrThrow({ where: { bookingRequestId: booking.id } });
+    const issued = await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } });
+
+    const requestedAt = new Date();
+    await requestQuoteResend(booking.id, await actor());
+    const opened = await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(opened.paymentDueAt!.getTime()).toBeGreaterThanOrEqual(paymentDeadlineFrom(requestedAt).getTime());
+    expect(opened.paymentDueAt!.getTime()).toBeLessThanOrEqual(paymentDeadlineFrom(new Date()).getTime());
+
+    const { client } = stubClient();
+    vi.mocked(client.getEstimate).mockResolvedValue({
+      id: document.holdedId, number: document.documentNumber, description: null, date: null,
+      totalCents: document.totalCents, status: "approved", contactId: "contact-1", contactName: null,
+    });
+    await runQuoteJob(await queuedJob(booking.id), { client, config });
+
+    expect(client.sendEstimate).toHaveBeenCalledOnce();
+    expect(client.createEstimate).not.toHaveBeenCalled();
+    expect(client.replaceEstimateLines).not.toHaveBeenCalled();
+    expect(client.readService).not.toHaveBeenCalled();
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } }),
+    ).resolves.toMatchObject({
+      advanceCents: issued.advanceCents,
+      depositCents: issued.depositCents,
+      paymentDueAt: opened.paymentDueAt,
+    });
+  });
+
+  it("does not open a payment window when a linked estimate is sent", async () => {
+    const booking = await approvedBooking();
+    await db.holdedDocument.create({
+      data: { bookingRequestId: booking.id, type: "ESTIMATE", holdedId: "linked-estimate", totalCents: 144_000 },
+    });
+
+    await requestQuoteResend(booking.id, await actor());
+
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } }),
+    ).resolves.toMatchObject({ paymentDueAt: null });
   });
 
   it("issues and sends the estimate without creating a reserve invoice", async () => {

@@ -1034,11 +1034,13 @@
     },
     "actions": {
       "approve": "Aprobar",
+      "approveWithoutEmail": "Aprobar sin enviar correo",
       "reject": "Rechazar",
       "cancel": "Cancelar reserva",
       "reasonLabel": "Motivo",
       "reasonHint": "Queda en el historial y se envía al solicitante.",
       "recordPayment": "Registrar pago",
+      "sendQuote": "Enviar el presupuesto",
       "resendQuote": "Enviar de nuevo el presupuesto",
       "queuingQuote": "Poniendo el presupuesto en cola...",
       "quoteQueued": "Petición registrada. El presupuesto está pendiente de procesamiento.",

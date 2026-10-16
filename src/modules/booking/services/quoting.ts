@@ -50,11 +50,14 @@ export function quoteJobKey(bookingRequestId: string): string {
   return `${QUOTE_JOB_KIND}:${bookingRequestId}`;
 }
 
-export async function enqueueQuote(bookingRequestId: string): Promise<boolean> {
+export async function enqueueQuote(
+  bookingRequestId: string,
+  options: { send?: boolean } = {},
+): Promise<boolean> {
   const queued = await enqueueJob({
     kind: QUOTE_JOB_KIND,
     idempotencyKey: quoteJobKey(bookingRequestId),
-    payload: { bookingRequestId },
+    payload: options.send === false ? { bookingRequestId, send: false } : { bookingRequestId },
   });
   if (queued) await recordBookingOperation(bookingRequestId, "QUOTE_REQUESTED");
   return queued;
@@ -90,6 +93,14 @@ export async function requestQuoteResend(bookingRequestId: string, actorUserId: 
     });
     if ((job && ["PENDING", "CLAIMED"].includes(job.status)) || recentRequest) {
       throw new QuoteResendError("busy");
+    }
+    // An estimate approved without email opens the payment window on its first send.
+    const heldQuote = (job?.payload as { send?: unknown } | null | undefined)?.send === false;
+    if (heldQuote && booking.state === "AWAITING_PAYMENT" && !booking.paymentDueAt) {
+      await transaction.bookingRequest.update({
+        where: { id: bookingRequestId },
+        data: { paymentDueAt: paymentDeadlineFrom(new Date()) },
+      });
     }
     const reset = {
       payload: {
@@ -192,8 +203,14 @@ async function generateQuote(
   job: OutboxJob,
   overrides: { client?: HoldedClient; config?: HoldedConfig } = {},
 ): Promise<void> {
-  const payload = job.payload as { bookingRequestId?: unknown; resend?: unknown; resumeCreation?: unknown };
+  const payload = job.payload as {
+    bookingRequestId?: unknown;
+    resend?: unknown;
+    resumeCreation?: unknown;
+    send?: unknown;
+  };
   const bookingRequestId = String(payload.bookingRequestId ?? "");
+  const send = payload.send !== false;
 
   const booking = await db.bookingRequest.findUnique({
     where: { id: bookingRequestId },
@@ -391,7 +408,7 @@ async function generateQuote(
     await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
   }
 
-  const paymentDueAt = booking.paymentDueAt ?? paymentDeadlineFrom(new Date());
+  const paymentDueAt = booking.paymentDueAt ?? (send ? paymentDeadlineFrom(new Date()) : null);
 
   await client.replaceEstimateLines(estimateId, [stayLine]);
 
@@ -403,14 +420,17 @@ async function generateQuote(
   if (!estimateDocumentId) {
     throw new QuotingError("unknown_booking", "Estimate document was not persisted");
   }
-  const delivery = await prepareDocumentDelivery(estimateDocumentId, client);
-  if (delivery) {
-    await deliverPreparedDocument(
-      estimateDocumentId,
-      client,
-      config.mailTemplateId,
-      bookingManagementSubject(config.language),
-    );
+  // A held quote stays in Holded for the operator to review and send later.
+  if (send) {
+    const delivery = await prepareDocumentDelivery(estimateDocumentId, client);
+    if (delivery) {
+      await deliverPreparedDocument(
+        estimateDocumentId,
+        client,
+        config.mailTemplateId,
+        bookingManagementSubject(config.language),
+      );
+    }
   }
 
   await db.bookingRequest.update({
@@ -430,6 +450,7 @@ async function generateQuote(
       bookingRequestId: booking.id,
       units: quote.units,
       advanceCents: quote.advanceCents,
+      held: !send,
     },
     "booking quote issued in Holded",
   );
