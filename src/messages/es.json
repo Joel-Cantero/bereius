@@ -792,6 +792,16 @@
       "noTaxId": "El contacto de este presupuesto no tiene NIF en Holded, así que no se puede emparejar con ninguna solicitud.",
       "noCandidates": "Este cliente no tiene ninguna solicitud abierta sin presupuesto.",
       "stay": "{start} – {end} · {headcount} personas"
+    },
+    "create": {
+      "title": "Crea una solicitud a partir del contrato",
+      "hint": "Si este contrato no tiene solicitud, créala para poder conciliar el pago y emitir la factura de reserva (depósito y paga y señal). El cliente es el contacto del presupuesto y la solicitud queda esperando el pago.",
+      "startDate": "Entrada",
+      "endDate": "Salida",
+      "headcount": "Personas",
+      "boardType": "Régimen",
+      "chooseBoard": "Elige el régimen",
+      "submit": "Crear la solicitud"
     }
   },
   "BankMovements": {
@@ -1161,6 +1171,7 @@
       "quote_delivery_unknown": "No se puede reenviar porque el envío anterior está en curso o tiene un resultado desconocido. Compruébalo en Holded.",
       "customer_not_found": "No hay ningún cliente ni contacto de Holded con este NIF.",
       "customer_without_email": "El contacto de Holded no tiene correo electrónico. Añádelo en Holded y vuelve a intentarlo.",
+      "contract_linked": "Este contrato ya está vinculado a una solicitud. Recarga la página.",
       "authentication": "El servicio ha rechazado la credencial. Comprueba que sea correcta y que tenga permisos.",
       "connection": "No se ha podido contactar con el servicio. Inténtalo de nuevo más tarde.",
       "not_found": "El servicio responde pero no encuentra el recurso. Revisa la URL base y el identificador del formulario.",

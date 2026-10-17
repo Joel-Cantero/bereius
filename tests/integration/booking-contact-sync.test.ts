@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   contact: null as Record<string, unknown> | null,
   findContactByTaxId: vi.fn(async () => mocks.contact),
   estimates: [] as Record<string, unknown>[],
+  estimate: null as Record<string, unknown> | null,
+  getEstimate: vi.fn(async () => mocks.estimate),
+  getContact: vi.fn(async () => mocks.contact),
   updateContact: vi.fn(async () => undefined),
   createContact: vi.fn(async () => ({ id: "new-contact" })),
   readService: vi.fn(async () => ({ priceCents: 22_500, accountId: null })),
@@ -29,6 +32,8 @@ vi.mock("@/lib/holded/client", async (importOriginal) => ({
   createHoldedClient: () => ({
     findContactByTaxId: mocks.findContactByTaxId,
     listEstimatesByContact: mocks.listEstimatesByContact,
+    getEstimate: mocks.getEstimate,
+    getContact: mocks.getContact,
     updateContact: mocks.updateContact,
     createContact: mocks.createContact,
     readService: mocks.readService,
@@ -38,6 +43,8 @@ vi.mock("@/lib/holded/client", async (importOriginal) => ({
 import { db } from "@/lib/db";
 import {
   changeBookingCustomer,
+  contractEntryId,
+  createBookingFromContract,
   findBookingCustomerCandidate,
   inspectCustomerContact,
   linkExistingEstimate,
@@ -115,6 +122,7 @@ describe.skipIf(!runIntegrationTests)("holded contact synchronisation", () => {
   afterEach(async () => {
     mocks.contact = null;
     mocks.estimates = [];
+    mocks.estimate = null;
     vi.clearAllMocks();
   });
 
@@ -382,6 +390,129 @@ describe.skipIf(!runIntegrationTests)("holded contact synchronisation", () => {
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
     ).resolves.toMatchObject({ state: "IN_REVIEW" });
+  });
+
+  describe("opening a request from a contract", () => {
+    const STAY = {
+      boardType: "FULL_BOARD" as const,
+      startDate: new Date("2027-07-10T00:00:00.000Z"),
+      endDate: new Date("2027-07-13T00:00:00.000Z"),
+      headcount: 35,
+      actorUserId: null,
+    };
+
+    function contract(taxId: string | null) {
+      const holdedId = `contract-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      mocks.estimate = {
+        id: holdedId,
+        number: "E9",
+        date: "2026-09-13",
+        totalCents: 100_000,
+        contactId: "contact-1",
+      };
+      mocks.contact = { ...HOLDED_CONTACT, taxId };
+      return holdedId;
+    }
+
+    async function created(holdedId: string) {
+      const request = await db.bookingRequest.findFirstOrThrow({
+        where: { gravityEntryId: contractEntryId(holdedId) },
+        include: { customer: true, documents: true, auditEvents: true },
+      });
+      bookingIds.push(request.id);
+      return request;
+    }
+
+    it("opens a request awaiting payment for the estimate's contact", async () => {
+      const taxId = uniqueTaxId();
+      const holdedId = contract(taxId);
+
+      const id = await createBookingFromContract({ holdedId, ...STAY });
+
+      const request = await created(holdedId);
+      expect(request).toMatchObject({
+        id,
+        state: "AWAITING_PAYMENT",
+        boardType: "FULL_BOARD",
+        startDate: STAY.startDate,
+        endDate: STAY.endDate,
+        headcount: 35,
+        advanceCents: 30_000,
+        depositCents: 22_500,
+        paymentDueAt: null,
+        decidedAt: new Date("2026-09-13T00:00:00.000Z"),
+        customer: { taxId, email: CUSTOMER.email, holdedContactId: "contact-1" },
+        documents: [expect.objectContaining({ type: "ESTIMATE", holdedId, totalCents: 100_000 })],
+      });
+      expect(request.auditEvents.map((event) => [event.fromState, event.toState])).toEqual([
+        ["IN_REVIEW", "AWAITING_PAYMENT"],
+      ]);
+    });
+
+    it("books a known customer and points them at the contact the invoice needs", async () => {
+      const taxId = uniqueTaxId();
+      const known = await otherCustomer(taxId);
+      const holdedId = contract(taxId);
+
+      await createBookingFromContract({ holdedId, ...STAY });
+
+      const request = await created(holdedId);
+      expect(request.customerId).toBe(known.id);
+      expect(request.customer).toMatchObject({
+        name: "Another organisation",
+        holdedContactId: "contact-1",
+      });
+    });
+
+    it("opens one request however many times it is asked at once", async () => {
+      const holdedId = contract(uniqueTaxId());
+
+      const results = await Promise.allSettled([
+        createBookingFromContract({ holdedId, ...STAY }),
+        createBookingFromContract({ holdedId, ...STAY }),
+      ]);
+
+      expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+      expect(results.find((result) => result.status === "rejected")).toMatchObject({
+        reason: { code: "estimate_linked" },
+      });
+      await created(holdedId);
+      await expect(
+        db.bookingRequest.count({ where: { gravityEntryId: contractEntryId(holdedId) } }),
+      ).resolves.toBe(1);
+    });
+
+    it("refuses a contact without a tax identifier and creates nothing", async () => {
+      const holdedId = contract(null);
+
+      await expect(
+        createBookingFromContract({ holdedId, ...STAY }),
+      ).rejects.toMatchObject({ code: "customer_not_found" });
+      await expect(
+        db.bookingRequest.count({ where: { gravityEntryId: contractEntryId(holdedId) } }),
+      ).resolves.toBe(0);
+    });
+
+    it("refuses a new customer the invoice could not be mailed to", async () => {
+      const holdedId = contract(uniqueTaxId());
+      mocks.contact = { ...mocks.contact, email: null };
+
+      await expect(
+        createBookingFromContract({ holdedId, ...STAY }),
+      ).rejects.toMatchObject({ code: "customer_without_email" });
+      await expect(
+        db.bookingRequest.count({ where: { gravityEntryId: contractEntryId(holdedId) } }),
+      ).resolves.toBe(0);
+    });
+
+    it("rejects an impossible stay before asking Holded", async () => {
+      const holdedId = contract(uniqueTaxId());
+
+      await expect(
+        createBookingFromContract({ holdedId, ...STAY, endDate: STAY.startDate }),
+      ).rejects.toMatchObject({ code: "invalid_stay" });
+      expect(mocks.getEstimate).not.toHaveBeenCalled();
+    });
   });
 
   describe("changing the customer before approval", () => {

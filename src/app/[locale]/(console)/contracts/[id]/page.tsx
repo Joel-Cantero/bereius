@@ -7,11 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Link } from "@/i18n/navigation";
 import { holdedEstimateUrl } from "@/lib/holded/links";
 import { noIndexMetadata } from "@/lib/seo";
-import { linkEstimateAction } from "@/modules/booking/actions/contact";
+import {
+  createBookingFromContractAction,
+  linkEstimateAction,
+} from "@/modules/booking/actions/contact";
 import { AuthorizationError, requireBookingActor } from "@/modules/booking/authorization";
 import { ContactSyncButton } from "@/modules/booking/components/contact-sync";
+import { ContractBookingForm } from "@/modules/booking/components/contract-booking";
 import { BookingStateBadge } from "@/modules/booking/components/state-badge";
-import { readContract } from "@/modules/booking/services/contracts";
+import { parseContractStay, readContract } from "@/modules/booking/services/contracts";
 import { getLoginPathForLocale, parseLoginLocale } from "@/modules/login/schema";
 
 interface ContractDetailPageProps {
@@ -206,6 +210,20 @@ export default async function ContractDetailPage({ params }: ContractDetailPageP
           </>
         )}
       </section>
+
+      {detail.status === "unlinked" && detail.taxId !== null ? (
+        <section aria-labelledby="create-heading" className="flex flex-col gap-3">
+          <h2 id="create-heading" className="text-lg font-medium">
+            {t("create.title")}
+          </h2>
+          <p className="text-sm text-muted-foreground">{t("create.hint")}</p>
+          <ContractBookingForm
+            action={createBookingFromContractAction}
+            holdedId={contract.id}
+            defaults={parseContractStay(contract.description)}
+          />
+        </section>
+      ) : null}
     </main>
   );
 }

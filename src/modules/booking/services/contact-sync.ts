@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { BoardType, BookingState } from "@/generated/prisma/enums";
 import { db } from "@/lib/db";
 import {
   createHoldedClient,
@@ -10,8 +11,15 @@ import {
   type HoldedEstimateSummary,
 } from "@/lib/holded/client";
 import { logger } from "@/lib/logger";
-import { transitionBooking } from "@/modules/booking/services/lifecycle";
-import { calculateConfirmationAmounts } from "@/modules/booking/services/pricing";
+import {
+  transitionBooking,
+  type BookingTransactionClient,
+} from "@/modules/booking/services/lifecycle";
+import {
+  calculateConfirmationAmounts,
+  countNights,
+  type ConfirmationAmounts,
+} from "@/modules/booking/services/pricing";
 import {
   normalizeTaxId,
   resolveIntegration,
@@ -55,7 +63,8 @@ export class ContactSyncError extends Error {
       | "missing_estimate_total"
       | "customer_not_found"
       | "customer_without_email"
-      | "customer_locked",
+      | "customer_locked"
+      | "estimate_linked",
   ) {
     super(code);
     this.name = "ContactSyncError";
@@ -212,6 +221,89 @@ export async function updateCustomerContact(bookingRequestId: string): Promise<v
   );
 }
 
+interface EstimateTerms {
+  estimate: HoldedEstimateSummary;
+  totalCents: number;
+  amounts: ConfirmationAmounts;
+  approvedAt: Date;
+}
+
+/** What a Holded estimate commits the customer to pay, read before any write. */
+async function readEstimateTerms(
+  client: HoldedClient,
+  depositServiceId: string,
+  estimate: HoldedEstimateSummary,
+): Promise<EstimateTerms> {
+  if (estimate.totalCents === null) {
+    throw new ContactSyncError("missing_estimate_total");
+  }
+
+  const depositService = await client.readService(depositServiceId, { fresh: true });
+  const amounts = calculateConfirmationAmounts(
+    estimate.totalCents,
+    depositService.priceCents,
+  );
+  const estimateDate = estimate.date?.match(/^\d{4}-\d{2}-\d{2}$/u)
+    ? new Date(`${estimate.date}T00:00:00.000Z`)
+    : null;
+  const approvedAt =
+    estimateDate &&
+    !Number.isNaN(estimateDate.getTime()) &&
+    estimateDate.toISOString().slice(0, 10) === estimate.date
+      ? estimateDate
+      : new Date();
+
+  return { estimate, totalCents: estimate.totalCents, amounts, approvedAt };
+}
+
+async function recordEstimateLink(
+  tx: BookingTransactionClient,
+  command: {
+    bookingRequestId: string;
+    state: BookingState;
+    terms: EstimateTerms;
+    actorUserId: string | null;
+  },
+): Promise<void> {
+  const { bookingRequestId, terms } = command;
+  const document = {
+    holdedId: terms.estimate.id,
+    documentNumber: terms.estimate.number,
+    totalCents: terms.totalCents,
+    issuedAt: terms.approvedAt,
+  };
+
+  await tx.holdedDocument.upsert({
+    where: { bookingRequestId_type: { bookingRequestId, type: "ESTIMATE" } },
+    create: { bookingRequestId, type: "ESTIMATE", ...document },
+    update: document,
+  });
+
+  await tx.bookingRequest.update({
+    where: { id: bookingRequestId },
+    data: {
+      advanceCents: terms.amounts.advanceCents,
+      depositCents: terms.amounts.depositCents,
+    },
+  });
+
+  // The estimate is the contract, so a request that has one has been agreed
+  // and the deposit can be asked for. Quoting is deliberately not queued: it
+  // would issue a second estimate.
+  if (command.state === "IN_REVIEW") {
+    await transitionBooking(
+      {
+        bookingRequestId,
+        to: "AWAITING_PAYMENT",
+        actorUserId: command.actorUserId,
+        decidedAt: terms.approvedAt,
+        expectedFrom: "IN_REVIEW",
+      },
+      tx,
+    );
+  }
+}
+
 /**
  * Records an estimate that already exists in Holded against this request, so
  * quoting leaves it alone instead of issuing a second one.
@@ -236,73 +328,14 @@ export async function linkExistingEstimate(
   const estimates = await client.listEstimatesByContact(contact.id, { fresh: true });
   const estimate = estimates.find((candidate) => candidate.id === holdedId);
   if (!estimate) throw new ContactSyncError("not_in_holded");
-  if (estimate.totalCents === null) {
-    throw new ContactSyncError("missing_estimate_total");
-  }
 
-  const depositService = await client.readService(config.depositServiceId, {
-    fresh: true,
-  });
-  const amounts = calculateConfirmationAmounts(
-    estimate.totalCents,
-    depositService.priceCents,
-  );
-  const linkedAt = new Date();
-  const estimateDate = estimate.date?.match(/^\d{4}-\d{2}-\d{2}$/u)
-    ? new Date(`${estimate.date}T00:00:00.000Z`)
-    : null;
-  const approvedAt =
-    estimateDate &&
-    !Number.isNaN(estimateDate.getTime()) &&
-    estimateDate.toISOString().slice(0, 10) === estimate.date
-      ? estimateDate
-      : linkedAt;
+  const terms = await readEstimateTerms(client, config.depositServiceId, estimate);
 
   // The document and the approval move together: a request must never end up
   // holding a contract while still sitting in review.
-  await db.$transaction(async (tx) => {
-    await tx.holdedDocument.upsert({
-      where: { bookingRequestId_type: { bookingRequestId, type: "ESTIMATE" } },
-      create: {
-        bookingRequestId,
-        type: "ESTIMATE",
-        holdedId: estimate.id,
-        documentNumber: estimate.number,
-        totalCents: estimate.totalCents,
-        issuedAt: approvedAt,
-      },
-      update: {
-        holdedId: estimate.id,
-        documentNumber: estimate.number,
-        totalCents: estimate.totalCents,
-        issuedAt: approvedAt,
-      },
-    });
-
-    await tx.bookingRequest.update({
-      where: { id: bookingRequestId },
-      data: {
-        advanceCents: amounts.advanceCents,
-        depositCents: amounts.depositCents,
-      },
-    });
-
-    // The estimate is the contract, so a request that has one has been agreed
-    // and the deposit can be asked for. Quoting is deliberately not queued: it
-    // would issue a second estimate.
-    if (state === "IN_REVIEW") {
-      await transitionBooking(
-        {
-          bookingRequestId,
-          to: "AWAITING_PAYMENT",
-          actorUserId,
-          decidedAt: approvedAt,
-          expectedFrom: "IN_REVIEW",
-        },
-        tx,
-      );
-    }
-  });
+  await db.$transaction((tx) =>
+    recordEstimateLink(tx, { bookingRequestId, state, terms, actorUserId }),
+  );
 
   logger.info(
     {
@@ -313,6 +346,129 @@ export async function linkExistingEstimate(
     },
     "existing holded estimate linked to a booking request",
   );
+}
+
+export interface ContractBookingCommand {
+  holdedId: string;
+  boardType: BoardType;
+  startDate: Date;
+  endDate: Date;
+  headcount: number;
+  actorUserId: string | null;
+}
+
+/** Marks requests that came from a Holded contract rather than the booking form. */
+export function contractEntryId(holdedId: string): string {
+  return `holded:${holdedId}`;
+}
+
+/**
+ * Opens a request for a contract agreed outside the booking form, so the stay
+ * can still be paid, reconciled and invoiced like any other. The customer is
+ * whoever the estimate's Holded contact is, never a choice of the operator.
+ */
+export async function createBookingFromContract(
+  command: ContractBookingCommand,
+): Promise<string> {
+  // Rejects an impossible stay before anything reaches Holded.
+  countNights(command.startDate, command.endDate);
+
+  const { config, secret } = await resolveIntegration("HOLDED");
+  const client = createHoldedClient(secret, undefined, "booking.contacts");
+  if (!config.depositServiceId) {
+    throw new ContactSyncError("incomplete_configuration");
+  }
+
+  const estimate = await client.getEstimate(command.holdedId);
+  if (!estimate?.contactId) throw new ContactSyncError("not_in_holded");
+  const contact = await client.getContact(estimate.contactId, { fresh: true });
+  if (!contact) throw new ContactSyncError("not_in_holded");
+  const taxId = contact.taxId?.trim() ? normalizeTaxId(contact.taxId) : "";
+  if (!taxId) throw new ContactSyncError("customer_not_found");
+
+  const terms = await readEstimateTerms(client, config.depositServiceId, estimate);
+
+  const bookingRequestId = await db.$transaction(async (tx) => {
+    // Two operators, or a double click, must not open two requests for one contract.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${contractEntryId(estimate.id)}))`;
+
+    const linked = await tx.holdedDocument.findFirst({
+      where: { holdedId: estimate.id, type: "ESTIMATE" },
+      select: { id: true },
+    });
+    if (linked) throw new ContactSyncError("estimate_linked");
+
+    const known = await tx.customer.findFirst({
+      where: {
+        OR: taxIdVariants(contact.taxId ?? taxId).map((variant) => ({
+          taxId: { equals: variant, mode: "insensitive" as const },
+        })),
+      },
+      select: { id: true, holdedContactId: true },
+      orderBy: { updatedAt: "desc" },
+    });
+
+    let customerId: string;
+    if (known) {
+      customerId = known.id;
+      // The reserve invoice is addressed to this contact.
+      if (!known.holdedContactId) {
+        await tx.customer.update({
+          where: { id: known.id },
+          data: { holdedContactId: contact.id },
+        });
+      }
+    } else {
+      const email = contact.email?.trim();
+      if (!email) throw new ContactSyncError("customer_without_email");
+      customerId = (
+        await tx.customer.create({
+          data: {
+            taxId,
+            name: contact.name,
+            email,
+            phone: contact.phone,
+            addressLine: contact.addressLine,
+            city: contact.city,
+            province: contact.province,
+            postalCode: contact.postalCode,
+            country: contact.country,
+            holdedContactId: contact.id,
+          },
+          select: { id: true },
+        })
+      ).id;
+    }
+
+    const booking = await tx.bookingRequest.create({
+      data: {
+        gravityEntryId: contractEntryId(estimate.id),
+        customerId,
+        boardType: command.boardType,
+        startDate: command.startDate,
+        endDate: command.endDate,
+        headcount: command.headcount,
+        submittedAt: terms.approvedAt,
+      },
+      select: { id: true },
+    });
+
+    await recordEstimateLink(tx, {
+      bookingRequestId: booking.id,
+      state: "IN_REVIEW",
+      terms,
+      actorUserId: command.actorUserId,
+    });
+
+    return booking.id;
+  });
+
+  logger.info(
+    { event: "booking_created_from_contract", bookingRequestId, holdedId: estimate.id },
+    "booking request opened from a holded contract",
+  );
+
+  return bookingRequestId;
 }
 
 export interface CustomerCandidate {
