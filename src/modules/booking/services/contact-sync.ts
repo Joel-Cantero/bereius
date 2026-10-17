@@ -12,7 +12,10 @@ import {
 import { logger } from "@/lib/logger";
 import { transitionBooking } from "@/modules/booking/services/lifecycle";
 import { calculateConfirmationAmounts } from "@/modules/booking/services/pricing";
-import { resolveIntegration } from "@/modules/booking/services/settings";
+import {
+  normalizeTaxId,
+  resolveIntegration,
+} from "@/modules/booking/services/settings";
 
 export const CONTACT_FIELDS = [
   "name",
@@ -49,7 +52,10 @@ export class ContactSyncError extends Error {
       | "unknown_booking"
       | "not_in_holded"
       | "incomplete_configuration"
-      | "missing_estimate_total",
+      | "missing_estimate_total"
+      | "customer_not_found"
+      | "customer_without_email"
+      | "customer_locked",
   ) {
     super(code);
     this.name = "ContactSyncError";
@@ -307,4 +313,169 @@ export async function linkExistingEstimate(
     },
     "existing holded estimate linked to a booking request",
   );
+}
+
+export interface CustomerCandidate {
+  taxId: string;
+  name: string;
+  email: string;
+  /** Whether the customer is already known here or only exists in Holded. */
+  source: "booking" | "holded";
+  /** Already the customer of this request. */
+  current: boolean;
+}
+
+type ResolvedCustomer =
+  | {
+      source: "booking";
+      customer: { id: string; taxId: string; name: string; email: string };
+    }
+  | { source: "holded"; contact: HoldedContact; taxId: string; email: string };
+
+/** Operators type identifiers with spaces, dots or dashes; try both spellings. */
+function taxIdVariants(taxId: string): string[] {
+  return [...new Set([taxId.trim(), normalizeTaxId(taxId)])].filter(Boolean);
+}
+
+/**
+ * Finds whoever a tax identifier belongs to: a customer this application
+ * already knows, otherwise a Holded contact. A Holded failure propagates, so
+ * the operator is told the lookup failed instead of that nobody matched.
+ */
+async function resolveCustomerByTaxId(taxId: string): Promise<ResolvedCustomer> {
+  const variants = taxIdVariants(taxId);
+  if (variants.length === 0) throw new ContactSyncError("customer_not_found");
+
+  const known = await db.customer.findFirst({
+    where: {
+      OR: variants.map((variant) => ({
+        taxId: { equals: variant, mode: "insensitive" as const },
+      })),
+    },
+    select: { id: true, taxId: true, name: true, email: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (known) return { source: "booking", customer: known };
+
+  const client = await connect();
+  if (client) {
+    for (const variant of variants) {
+      const contact = await client.findContactByTaxId(variant);
+      if (!contact) continue;
+
+      // A customer needs an address to receive the quote.
+      const email = contact.email?.trim();
+      if (!email) throw new ContactSyncError("customer_without_email");
+
+      return {
+        source: "holded",
+        contact,
+        taxId: contact.taxId?.trim() || normalizeTaxId(taxId),
+        email,
+      };
+    }
+  }
+
+  throw new ContactSyncError("customer_not_found");
+}
+
+/** Previews who a request would be reassigned to, without changing anything. */
+export async function findBookingCustomerCandidate(
+  bookingRequestId: string,
+  taxId: string,
+): Promise<CustomerCandidate> {
+  const { customerId } = await loadCustomer(bookingRequestId);
+  const resolved = await resolveCustomerByTaxId(taxId);
+
+  if (resolved.source === "booking") {
+    return {
+      taxId: resolved.customer.taxId,
+      name: resolved.customer.name,
+      email: resolved.customer.email,
+      source: "booking",
+      current: resolved.customer.id === customerId,
+    };
+  }
+
+  return {
+    taxId: resolved.taxId,
+    name: resolved.contact.name,
+    email: resolved.email,
+    source: "holded",
+    current: false,
+  };
+}
+
+/**
+ * Reassigns a request to another customer, so the quote is issued to the right
+ * Holded contact. Only possible before approval: once an estimate exists, it
+ * already names a contact and changing ours would make the two disagree.
+ */
+export async function changeBookingCustomer(
+  bookingRequestId: string,
+  taxId: string,
+  actorUserId: string | null = null,
+): Promise<void> {
+  const resolved = await resolveCustomerByTaxId(taxId);
+
+  const customerId = await db.$transaction(async (tx) => {
+    const booking = await tx.bookingRequest.findUnique({
+      where: { id: bookingRequestId },
+      select: { customerId: true },
+    });
+    if (!booking) throw new ContactSyncError("unknown_booking");
+
+    const nextCustomerId =
+      resolved.source === "booking"
+        ? resolved.customer.id
+        : (
+            await tx.customer.upsert({
+              where: { taxId: resolved.taxId },
+              create: {
+                taxId: resolved.taxId,
+                name: resolved.contact.name,
+                email: resolved.email,
+                phone: resolved.contact.phone,
+                addressLine: resolved.contact.addressLine,
+                city: resolved.contact.city,
+                province: resolved.contact.province,
+                postalCode: resolved.contact.postalCode,
+                country: resolved.contact.country,
+                holdedContactId: resolved.contact.id,
+              },
+              update: {},
+              select: { id: true },
+            })
+          ).id;
+
+    if (nextCustomerId === booking.customerId) return null;
+
+    const { count } = await tx.bookingRequest.updateMany({
+      where: {
+        id: bookingRequestId,
+        customerId: booking.customerId,
+        state: "IN_REVIEW",
+        documents: { none: { type: "ESTIMATE" } },
+      },
+      data: { customerId: nextCustomerId },
+    });
+    if (count === 0) throw new ContactSyncError("customer_locked");
+
+    await tx.bookingOperationEvent.create({
+      data: { bookingRequestId, type: "CUSTOMER_CHANGED", actorUserId },
+    });
+    return nextCustomerId;
+  });
+
+  if (customerId) {
+    logger.info(
+      {
+        event: "booking_customer_changed",
+        bookingRequestId,
+        customerId,
+        source: resolved.source,
+      },
+      "booking request reassigned to another customer",
+    );
+  }
 }

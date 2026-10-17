@@ -8,6 +8,7 @@ const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === "true";
 
 const mocks = vi.hoisted(() => ({
   contact: null as Record<string, unknown> | null,
+  findContactByTaxId: vi.fn(async () => mocks.contact),
   estimates: [] as Record<string, unknown>[],
   updateContact: vi.fn(async () => undefined),
   createContact: vi.fn(async () => ({ id: "new-contact" })),
@@ -26,7 +27,7 @@ vi.mock("@/modules/booking/services/settings", async (importOriginal) => ({
 vi.mock("@/lib/holded/client", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   createHoldedClient: () => ({
-    findContactByTaxId: async () => mocks.contact,
+    findContactByTaxId: mocks.findContactByTaxId,
     listEstimatesByContact: mocks.listEstimatesByContact,
     updateContact: mocks.updateContact,
     createContact: mocks.createContact,
@@ -36,6 +37,8 @@ vi.mock("@/lib/holded/client", async (importOriginal) => ({
 
 import { db } from "@/lib/db";
 import {
+  changeBookingCustomer,
+  findBookingCustomerCandidate,
   inspectCustomerContact,
   linkExistingEstimate,
   updateCustomerContact,
@@ -80,7 +83,7 @@ describe.skipIf(!runIntegrationTests)("holded contact synchronisation", () => {
     });
     customerIds.push(customer.id);
 
-    return db.bookingRequest.create({
+    const request = await db.bookingRequest.create({
       data: {
         gravityEntryId: `contact-${suffix}`,
         customerId: customer.id,
@@ -91,6 +94,22 @@ describe.skipIf(!runIntegrationTests)("holded contact synchronisation", () => {
         submittedAt: new Date(),
       },
     });
+    bookingIds.push(request.id);
+    return request;
+  }
+
+  async function otherCustomer(taxId: string) {
+    const customer = await db.customer.create({
+      data: { ...CUSTOMER, name: "Another organisation", email: "other@example.test", taxId },
+    });
+    customerIds.push(customer.id);
+    return customer;
+  }
+
+  function uniqueTaxId() {
+    const taxId = `T${Date.now()}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+    taxIds.push(taxId);
+    return taxId;
   }
 
   afterEach(async () => {
@@ -99,9 +118,16 @@ describe.skipIf(!runIntegrationTests)("holded contact synchronisation", () => {
     vi.clearAllMocks();
   });
 
+  const bookingIds: string[] = [];
+  const taxIds: string[] = [];
+
   afterAll(async () => {
-    await db.bookingRequest.deleteMany({ where: { customerId: { in: customerIds } } });
-    await db.customer.deleteMany({ where: { id: { in: customerIds } } });
+    await db.bookingRequest.deleteMany({
+      where: { OR: [{ customerId: { in: customerIds } }, { id: { in: bookingIds } }] },
+    });
+    await db.customer.deleteMany({
+      where: { OR: [{ id: { in: customerIds } }, { taxId: { in: taxIds } }] },
+    });
     await db.$disconnect();
   });
 
@@ -356,5 +382,158 @@ describe.skipIf(!runIntegrationTests)("holded contact synchronisation", () => {
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
     ).resolves.toMatchObject({ state: "IN_REVIEW" });
+  });
+
+  describe("changing the customer before approval", () => {
+    it("finds a known customer however the tax identifier is typed", async () => {
+      const request = await booking();
+      const taxId = uniqueTaxId();
+      await otherCustomer(taxId);
+      const typed = ` ${taxId.slice(0, 4).toLowerCase()}-${taxId.slice(4)} `;
+
+      await expect(findBookingCustomerCandidate(request.id, typed)).resolves.toEqual({
+        taxId,
+        name: "Another organisation",
+        email: "other@example.test",
+        source: "booking",
+        current: false,
+      });
+      expect(mocks.findContactByTaxId).not.toHaveBeenCalled();
+    });
+
+    it("recognises the request's own customer", async () => {
+      const request = await booking();
+      const { taxId } = await db.customer.findUniqueOrThrow({ where: { id: request.customerId } });
+
+      await expect(findBookingCustomerCandidate(request.id, taxId)).resolves.toMatchObject({
+        current: true,
+      });
+    });
+
+    it("falls back to a Holded contact nobody has booked with yet", async () => {
+      const request = await booking();
+      const taxId = uniqueTaxId();
+      mocks.contact = { ...HOLDED_CONTACT, id: "contact-9", taxId, name: "Holded only" };
+
+      await expect(findBookingCustomerCandidate(request.id, taxId)).resolves.toEqual({
+        taxId,
+        name: "Holded only",
+        email: CUSTOMER.email,
+        source: "holded",
+        current: false,
+      });
+      await expect(db.customer.count({ where: { taxId } })).resolves.toBe(0);
+    });
+
+    it("reports a tax identifier that is neither known nor in Holded", async () => {
+      const request = await booking();
+
+      await expect(
+        findBookingCustomerCandidate(request.id, uniqueTaxId()),
+      ).rejects.toMatchObject({ code: "customer_not_found" });
+    });
+
+    it("refuses a Holded contact the quote could not be sent to", async () => {
+      const request = await booking();
+      const taxId = uniqueTaxId();
+      mocks.contact = { ...HOLDED_CONTACT, taxId, email: null };
+
+      await expect(findBookingCustomerCandidate(request.id, taxId)).rejects.toMatchObject({
+        code: "customer_without_email",
+      });
+    });
+
+    it("moves the request to a known customer and records who did it", async () => {
+      const request = await booking();
+      const taxId = uniqueTaxId();
+      const target = await otherCustomer(taxId);
+      const email = `operator-${taxId.toLowerCase()}@example.test`;
+      const actor = await db.user.create({
+        data: { email, normalizedEmail: email, name: "Operator" },
+      });
+
+      try {
+        await changeBookingCustomer(request.id, taxId.toLowerCase(), actor.id);
+
+        await expect(
+          db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+        ).resolves.toMatchObject({ customerId: target.id, state: "IN_REVIEW" });
+        await expect(
+          db.bookingOperationEvent.findMany({
+            where: { bookingRequestId: request.id },
+            select: { type: true, actorUserId: true },
+          }),
+        ).resolves.toEqual([{ type: "CUSTOMER_CHANGED", actorUserId: actor.id }]);
+      } finally {
+        await db.bookingOperationEvent.deleteMany({ where: { bookingRequestId: request.id } });
+        await db.user.delete({ where: { id: actor.id } });
+      }
+    });
+
+    it("creates the customer from Holded, already linked to its contact", async () => {
+      const request = await booking();
+      const taxId = uniqueTaxId();
+      mocks.contact = { ...HOLDED_CONTACT, id: "contact-9", taxId, name: "Holded only" };
+
+      await changeBookingCustomer(request.id, taxId);
+
+      const created = await db.customer.findUniqueOrThrow({ where: { taxId } });
+      expect(created).toMatchObject({
+        name: "Holded only",
+        email: CUSTOMER.email,
+        city: CUSTOMER.city,
+        holdedContactId: "contact-9",
+      });
+      await expect(
+        db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+      ).resolves.toMatchObject({ customerId: created.id });
+    });
+
+    it("records nothing when the customer is already the request's", async () => {
+      const request = await booking();
+      const { taxId } = await db.customer.findUniqueOrThrow({ where: { id: request.customerId } });
+
+      await changeBookingCustomer(request.id, taxId);
+
+      await expect(
+        db.bookingOperationEvent.count({ where: { bookingRequestId: request.id } }),
+      ).resolves.toBe(0);
+    });
+
+    it("leaves an approved request with the customer its quote names", async () => {
+      const request = await booking();
+      await db.bookingRequest.update({
+        where: { id: request.id },
+        data: { state: "AWAITING_PAYMENT" },
+      });
+      const taxId = uniqueTaxId();
+      await otherCustomer(taxId);
+
+      await expect(changeBookingCustomer(request.id, taxId)).rejects.toMatchObject({
+        code: "customer_locked",
+      });
+      await expect(
+        db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+      ).resolves.toMatchObject({ customerId: request.customerId });
+    });
+
+    it("leaves a request with a linked estimate alone, without creating anyone", async () => {
+      const request = await booking();
+      await db.holdedDocument.create({
+        data: {
+          bookingRequestId: request.id,
+          type: "ESTIMATE",
+          holdedId: "estimate-1",
+          issuedAt: new Date(),
+        },
+      });
+      const taxId = uniqueTaxId();
+      mocks.contact = { ...HOLDED_CONTACT, taxId };
+
+      await expect(changeBookingCustomer(request.id, taxId)).rejects.toMatchObject({
+        code: "customer_locked",
+      });
+      await expect(db.customer.count({ where: { taxId } })).resolves.toBe(0);
+    });
   });
 });

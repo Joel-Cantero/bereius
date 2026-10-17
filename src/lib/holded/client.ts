@@ -312,7 +312,6 @@ const estimateSummarySchema = z
     status: z.string().nullish(),
     contact_id: z.string().nullish(),
     contact_name: z.string().nullish(),
-    draft: z.boolean().nullish(),
   })
   .catchall(z.unknown());
 
@@ -377,7 +376,6 @@ function toEstimate(raw: z.infer<typeof estimateSummarySchema>): HoldedEstimateS
     status: raw.status ?? null,
     contactId: raw.contact_id ?? null,
     contactName: raw.contact_name?.trim() || null,
-    draft: raw.draft ?? null,
   };
 }
 
@@ -516,8 +514,6 @@ export interface HoldedEstimateSummary {
   status: string | null;
   contactId: string | null;
   contactName: string | null;
-  /** False once approved; Holded's `status` stays "pending" either way. */
-  draft?: boolean | null;
 }
 
 export interface HoldedClient {

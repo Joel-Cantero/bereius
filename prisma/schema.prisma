@@ -451,6 +451,7 @@ enum BookingOperationEventType {
   DELIVERY_FAILED
   DELIVERY_UNKNOWN
   QUOTE_FAILED
+  CUSTOMER_CHANGED
 }
 
 model BookingOperationEvent {
