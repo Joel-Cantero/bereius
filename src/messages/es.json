@@ -972,7 +972,8 @@
         "DELIVERY_ACCEPTED": "Envío del documento aceptado por Holded",
         "DELIVERY_FAILED": "Envío del documento rechazado; no se ha enviado",
         "DELIVERY_UNKNOWN": "Resultado del envío desconocido; reenvío bloqueado",
-        "QUOTE_FAILED": "Procesamiento del presupuesto interrumpido por un error"
+        "QUOTE_FAILED": "Procesamiento del presupuesto interrumpido por un error",
+        "CUSTOMER_CHANGED": "Cliente de la solicitud cambiado"
       }
     },
     "queue": {
@@ -1100,6 +1101,20 @@
       "SELF_CATERING": "Derecho a cocina",
       "FULL_BOARD": "Pensión completa"
     },
+    "customerChange": {
+      "title": "Cambiar el cliente",
+      "hint": "Antes de aprobar, puedes asignar la solicitud a otro cliente buscando su NIF. El presupuesto se emitirá a su contacto de Holded.",
+      "taxId": "NIF",
+      "search": "Buscar",
+      "name": "Nombre",
+      "email": "Correo",
+      "current": "Ya es el cliente de esta solicitud.",
+      "assign": "Asignar este cliente",
+      "source": {
+        "booking": "Cliente conocido por solicitudes anteriores.",
+        "holded": "Contacto de Holded; se creará el cliente al asignarlo."
+      }
+    },
     "holdedContact": {
       "title": "Contacto en Holded",
       "no_key": "Configura la clave de API de Holded para comprobar el contacto.",
@@ -1144,6 +1159,8 @@
       "amount_mismatch": "El importe no coincide al céntimo con lo debido. Revísalo a mano.",
       "quote_busy": "Ya hay una petición en curso o muy reciente. Recarga antes de volver a intentarlo.",
       "quote_delivery_unknown": "No se puede reenviar porque el envío anterior está en curso o tiene un resultado desconocido. Compruébalo en Holded.",
+      "customer_not_found": "No hay ningún cliente ni contacto de Holded con este NIF.",
+      "customer_without_email": "El contacto de Holded no tiene correo electrónico. Añádelo en Holded y vuelve a intentarlo.",
       "authentication": "El servicio ha rechazado la credencial. Comprueba que sea correcta y que tenga permisos.",
       "connection": "No se ha podido contactar con el servicio. Inténtalo de nuevo más tarde.",
       "not_found": "El servicio responde pero no encuentra el recurso. Revisa la URL base y el identificador del formulario.",

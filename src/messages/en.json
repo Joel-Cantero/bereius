@@ -972,7 +972,8 @@
         "DELIVERY_ACCEPTED": "Document delivery accepted by Holded",
         "DELIVERY_FAILED": "Document delivery rejected; not sent",
         "DELIVERY_UNKNOWN": "Delivery outcome unknown; resend blocked",
-        "QUOTE_FAILED": "Quote processing stopped because of an error"
+        "QUOTE_FAILED": "Quote processing stopped because of an error",
+        "CUSTOMER_CHANGED": "Request customer changed"
       }
     },
     "queue": {
@@ -1100,6 +1101,20 @@
       "SELF_CATERING": "Self-catering",
       "FULL_BOARD": "Full board"
     },
+    "customerChange": {
+      "title": "Change customer",
+      "hint": "Before approving, you can assign the request to another customer by searching their tax ID. The quote will be issued to their Holded contact.",
+      "taxId": "Tax ID",
+      "search": "Search",
+      "name": "Name",
+      "email": "Email",
+      "current": "Already the customer of this request.",
+      "assign": "Assign this customer",
+      "source": {
+        "booking": "Customer known from earlier requests.",
+        "holded": "Holded contact; the customer is created when assigned."
+      }
+    },
     "holdedContact": {
       "title": "Holded contact",
       "no_key": "Configure the Holded API key to check the contact.",
@@ -1144,6 +1159,8 @@
       "amount_mismatch": "The amount does not match what is owed to the cent. Review it by hand.",
       "quote_busy": "A request is already running or was made recently. Reload before trying again.",
       "quote_delivery_unknown": "Cannot resend while the previous delivery is running or its outcome is unknown. Check it in Holded.",
+      "customer_not_found": "No customer or Holded contact has this tax ID.",
+      "customer_without_email": "The Holded contact has no email address. Add one in Holded and try again.",
       "authentication": "The service refused the credential. Check that it is correct and carries the right permissions.",
       "connection": "The service could not be reached. Try again shortly.",
       "not_found": "The service answers but cannot find the resource. Check the base URL and the form id.",

@@ -13,40 +13,62 @@ import {
   requireBookingActor,
 } from "@/modules/booking/authorization";
 import {
+  changeBookingCustomer,
   ContactSyncError,
   createCustomerContact,
+  type CustomerCandidate,
+  findBookingCustomerCandidate,
   linkExistingEstimate,
   updateCustomerContact,
 } from "@/modules/booking/services/contact-sync";
 import { IntegrationSettingsError } from "@/modules/booking/services/settings";
 
+type ContactErrorReason =
+  | "unauthenticated"
+  | "forbidden"
+  | "invalid"
+  | "authentication"
+  | "connection"
+  | "not_found"
+  | "rejected"
+  | "customer_not_found"
+  | "customer_without_email"
+  | "state_changed"
+  | "unknown";
+
 export type ContactActionState =
   | { status: "idle" }
   | { status: "done" }
-  | {
-      status: "error";
-      reason:
-        | "unauthenticated"
-        | "forbidden"
-        | "invalid"
-        | "authentication"
-        | "connection"
-        | "not_found"
-        | "rejected"
-        | "unknown";
-    };
+  | { status: "error"; reason: ContactErrorReason };
+
+export type CustomerLookupState =
+  | { status: "idle" }
+  | ({ status: "found" } & CustomerCandidate)
+  | { status: "error"; reason: ContactErrorReason };
 
 const bookingSchema = z.object({ bookingRequestId: z.string().min(1) });
 const linkSchema = bookingSchema.extend({
   // A 24-character ObjectId, so a stray value never reaches Holded.
   holdedId: z.string().trim().regex(/^[0-9a-f]{24}$/u),
 });
+const customerSchema = bookingSchema.extend({
+  taxId: z.string().trim().min(1).max(32),
+});
 
-function toErrorState(error: unknown): ContactActionState {
+function toErrorState(error: unknown): { status: "error"; reason: ContactErrorReason } {
   if (error instanceof AuthorizationError) {
     return { status: "error", reason: error.code };
   }
-  if (error instanceof ContactSyncError || error instanceof z.ZodError) {
+  if (error instanceof ContactSyncError) {
+    if (error.code === "customer_not_found" || error.code === "customer_without_email") {
+      return { status: "error", reason: error.code };
+    }
+    if (error.code === "customer_locked") {
+      return { status: "error", reason: "state_changed" };
+    }
+    return { status: "error", reason: "invalid" };
+  }
+  if (error instanceof z.ZodError) {
     return { status: "error", reason: "invalid" };
   }
   if (error instanceof IntegrationSettingsError) {
@@ -81,14 +103,7 @@ async function run(
     return { status: "done" };
   } catch (error) {
     const state = toErrorState(error);
-    logger.warn(
-      {
-        event,
-        bookingRequestId,
-        reason: state.status === "error" ? state.reason : "unknown",
-      },
-      "holded contact action failed",
-    );
+    logger.warn({ event, bookingRequestId, reason: state.reason }, "holded contact action failed");
     return state;
   }
 }
@@ -145,6 +160,48 @@ export async function linkEstimateAction(
       // The same link is shown from the contract side, which must not go stale.
       revalidatePath("/contracts");
       revalidatePath(`/contracts/${holdedId}`);
+    });
+  } catch (error) {
+    return toErrorState(error);
+  }
+}
+
+export async function findCustomerAction(
+  _previous: CustomerLookupState,
+  formData: FormData,
+): Promise<CustomerLookupState> {
+  try {
+    await requireBookingActor();
+    const { bookingRequestId, taxId } = customerSchema.parse({
+      bookingRequestId: formData.get("bookingRequestId"),
+      taxId: formData.get("taxId"),
+    });
+
+    return {
+      status: "found",
+      ...(await findBookingCustomerCandidate(bookingRequestId, taxId)),
+    };
+  } catch (error) {
+    return toErrorState(error);
+  }
+}
+
+export async function changeCustomerAction(
+  _previous: ContactActionState,
+  formData: FormData,
+): Promise<ContactActionState> {
+  try {
+    const actor = await requireBookingActor();
+    const { bookingRequestId, taxId } = customerSchema.parse({
+      bookingRequestId: formData.get("bookingRequestId"),
+      taxId: formData.get("taxId"),
+    });
+
+    return await run("booking_customer_change_failed", bookingRequestId, async () => {
+      await changeBookingCustomer(bookingRequestId, taxId, actor.userId);
+      // The customer's name heads the detail page and the queue, in every locale.
+      revalidatePath("/[locale]/(console)/bookings/[id]", "page");
+      revalidatePath("/[locale]/(console)/bookings", "page");
     });
   } catch (error) {
     return toErrorState(error);

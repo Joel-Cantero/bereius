@@ -13,7 +13,9 @@ import {
 import { BookingPaymentCandidates } from "@/modules/banking/components/booking-payment-candidates";
 import { listBookingPaymentCandidates } from "@/modules/banking/services/queries";
 import {
+  changeCustomerAction,
   createContactAction,
+  findCustomerAction,
   linkEstimateAction,
   updateContactAction,
 } from "@/modules/booking/actions/contact";
@@ -27,6 +29,7 @@ import {
 } from "@/modules/booking/actions/decisions";
 import { AuthorizationError, requireBookingActor } from "@/modules/booking/authorization";
 import { ContactSyncButton } from "@/modules/booking/components/contact-sync";
+import { CustomerChange } from "@/modules/booking/components/customer-change";
 import { resendQuoteAction } from "@/modules/booking/actions/quotes";
 import { AdvanceEditor, DecisionForm, PaymentForm, QuoteResendForm } from "@/modules/booking/components/decision-forms";
 import { BookingStateBadge } from "@/modules/booking/components/state-badge";
@@ -125,6 +128,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
     (linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state));
   const linkedEstimateUnsent =
     linkedEstimate !== undefined && !linkedEstimate.sentAt && !linkedEstimate.delivery;
+  // An estimate already names a Holded contact, so the customer is fixed from then on.
+  const canChangeCustomer = booking.state === "IN_REVIEW" && linkedEstimate === undefined;
 
   // Linking an estimate approves the request, so the picker is only offered
   // while the request is under review and nothing is linked yet, and only for
@@ -249,6 +254,16 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             </>
           ) : null}
         </div>
+
+        {canChangeCustomer ? (
+          <CustomerChange
+            // Remounting on a new customer clears the previous search.
+            key={booking.customer.taxId}
+            bookingRequestId={booking.id}
+            lookupAction={findCustomerAction}
+            changeAction={changeCustomerAction}
+          />
+        ) : null}
       </section>
 
       {estimates !== null ? (

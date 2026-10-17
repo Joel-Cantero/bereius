@@ -70,7 +70,9 @@ vi.mock("@/modules/banking/actions/reconciliation", () => ({
   dismissBookingPaymentCandidateAction: vi.fn(),
 }));
 vi.mock("@/modules/booking/actions/contact", () => ({
+  changeCustomerAction: vi.fn(),
   createContactAction: vi.fn(),
+  findCustomerAction: vi.fn(),
   linkEstimateAction: vi.fn(),
   updateContactAction: vi.fn(),
 }));
@@ -252,6 +254,27 @@ describe("booking detail estimate delivery warning", () => {
     render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
     expect(screen.getByRole("button", { name: enMessages.Bookings.actions.approve })).toBeEnabled();
     expect(screen.getByRole("button", { name: enMessages.Bookings.actions.approveWithoutEmail })).toBeEnabled();
+  });
+
+  it("offers to change the customer while the request is in review without an estimate", async () => {
+    mocks.getBookingDetail.mockResolvedValue({
+      ...bookingWithDelivery("ACCEPTED"),
+      state: "IN_REVIEW",
+      documents: [],
+    });
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    const customer = within(screen.getByRole("region", { name: enMessages.Bookings.detail.customer }));
+    expect(customer.getByText(enMessages.Bookings.customerChange.title)).toBeInTheDocument();
+    expect(customer.getByLabelText(enMessages.Bookings.customerChange.taxId)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["once the request has been approved", { state: "AWAITING_PAYMENT" }],
+    ["once an estimate is linked", { state: "IN_REVIEW" }],
+  ])("does not offer to change the customer %s", async (_case, overrides) => {
+    mocks.getBookingDetail.mockResolvedValue({ ...bookingWithDelivery("ACCEPTED"), ...overrides });
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.queryByText(enMessages.Bookings.customerChange.title)).not.toBeInTheDocument();
   });
 
   it("offers the first send of an estimate that was issued without email", async () => {
