@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { BookingState } from "@/generated/prisma/enums";
+import type { BoardType, BookingState } from "@/generated/prisma/enums";
 import { db } from "@/lib/db";
 import {
   createHoldedClient,
@@ -153,6 +153,39 @@ export function estimateNamesStay(
     description.includes(shortDate(startDate)) &&
     description.includes(shortDate(endDate))
   );
+}
+
+export interface ContractStay {
+  /** Calendar dates as `YYYY-MM-DD`, ready for a date input. */
+  startDate: string | null;
+  endDate: string | null;
+  headcount: number | null;
+  boardType: BoardType | null;
+}
+
+function isoFromShortDate(day: string, month: string, year: string): string | null {
+  const iso = `20${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  const parsed = new Date(`${iso}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().startsWith(iso) ? iso : null;
+}
+
+/**
+ * Reads back the stay the quoting wrote into the description
+ * (`27/11/26 - 29/11/26 - 40 persones DC`). Only a suggestion to prefill a form:
+ * the operator confirms every value.
+ */
+export function parseContractStay(description: string | null): ContractStay {
+  const text = description ?? "";
+  const dates = [...text.matchAll(/\b(\d{1,2})\/(\d{1,2})\/(\d{2})\b/gu)];
+  const headcount = text.match(/\b(\d{1,4})\s*persones\b/iu);
+  const board = text.match(/\b(DC|PC)\b/u);
+
+  return {
+    startDate: dates[0] ? isoFromShortDate(dates[0][1], dates[0][2], dates[0][3]) : null,
+    endDate: dates[1] ? isoFromShortDate(dates[1][1], dates[1][2], dates[1][3]) : null,
+    headcount: headcount ? Number(headcount[1]) : null,
+    boardType: board ? (board[1] === "PC" ? "FULL_BOARD" : "SELF_CATERING") : null,
+  };
 }
 
 /**

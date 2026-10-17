@@ -792,6 +792,16 @@
       "noTaxId": "Holded holds no tax id for this estimate's contact, so it cannot be matched to a request.",
       "noCandidates": "This customer has no open request without an estimate.",
       "stay": "{start} – {end} · {headcount} people"
+    },
+    "create": {
+      "title": "Create a request from this contract",
+      "hint": "If this contract has no request, create one so the payment can be reconciled and the reserve invoice (deposit and advance) issued. The customer is the estimate's contact and the request waits for payment.",
+      "startDate": "Check-in",
+      "endDate": "Check-out",
+      "headcount": "People",
+      "boardType": "Board",
+      "chooseBoard": "Choose the board",
+      "submit": "Create request"
     }
   },
   "BankMovements": {
@@ -1161,6 +1171,7 @@
       "quote_delivery_unknown": "Cannot resend while the previous delivery is running or its outcome is unknown. Check it in Holded.",
       "customer_not_found": "No customer or Holded contact has this tax ID.",
       "customer_without_email": "The Holded contact has no email address. Add one in Holded and try again.",
+      "contract_linked": "This contract is already linked to a request. Reload the page.",
       "authentication": "The service refused the credential. Check that it is correct and carries the right permissions.",
       "connection": "The service could not be reached. Try again shortly.",
       "not_found": "The service answers but cannot find the resource. Check the base URL and the form id.",
