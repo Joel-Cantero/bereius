@@ -602,6 +602,13 @@ describe("Holded contacts", () => {
             email: "not-an-email",
             is_person: true,
           },
+          {
+            id: 94,
+            code: "other-system:94:1",
+            email: 123,
+            is_person: "yes",
+            type: "unknown-contact-type",
+          },
         ],
         has_more: false,
       }),

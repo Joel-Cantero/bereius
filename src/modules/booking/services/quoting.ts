@@ -154,8 +154,51 @@ export class QuotingError extends Error {
   }
 }
 
+class QuoteDeliveryPreparationError extends Error {
+  constructor(readonly code: string) {
+    super("Document delivery could not be prepared");
+    this.name = "QuoteDeliveryPreparationError";
+  }
+}
+
 function centsToAmount(cents: number): number {
   return cents / 100;
+}
+
+async function prepareAndDeliverEstimate(
+  bookingRequestId: string,
+  estimateDocumentId: string,
+  client: HoldedClient,
+  config: HoldedConfig,
+): Promise<"accepted" | "unknown"> {
+  let delivery;
+  try {
+    delivery = await prepareDocumentDelivery(estimateDocumentId, client);
+  } catch (error) {
+    const failureCode = operationFailureCode(error);
+    await recordBookingOperation(bookingRequestId, "DELIVERY_FAILED", failureCode);
+    throw new QuoteDeliveryPreparationError(failureCode);
+  }
+
+  if (!delivery) return "accepted";
+  return deliverPreparedDocument(
+    estimateDocumentId,
+    client,
+    config.mailTemplateId,
+    bookingManagementSubject(config.language),
+  );
+}
+
+async function startPaymentWindowAfterDelivery(
+  booking: { id: string; state: string; paymentDueAt: Date | null },
+  outcome: "accepted" | "unknown",
+): Promise<void> {
+  if (outcome === "accepted" && booking.state === "AWAITING_PAYMENT" && !booking.paymentDueAt) {
+    await db.bookingRequest.update({
+      where: { id: booking.id },
+      data: { paymentDueAt: paymentDeadlineFrom(new Date()) },
+    });
+  }
 }
 
 /**
@@ -235,6 +278,23 @@ async function generateQuote(
   const config = resolved.config;
   const client = overrides.client ?? createHoldedClient(resolved.secret, undefined, "booking.quoting");
 
+  const quoteValuesPersisted = linkedEstimate &&
+    booking.billableUnits !== null && booking.unitPriceCents !== null &&
+    booking.advanceCents !== null && booking.depositCents !== null;
+  if (linkedEstimate && quoteValuesPersisted && payload.resend !== true) {
+    const estimate = await client.getEstimate(linkedEstimate.holdedId);
+    const estimateIsApproved = estimate?.draft === false || estimate?.status?.trim().toLowerCase() === "approved";
+    if (!estimate || !booking.customer.holdedContactId || estimate.contactId !== booking.customer.holdedContactId || !estimateIsApproved) {
+      throw new QuotingError("incomplete_configuration", "Linked estimate could not be verified as approved");
+    }
+    await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
+    if (send) {
+      const outcome = await prepareAndDeliverEstimate(booking.id, linkedEstimate.id, client, config);
+      await startPaymentWindowAfterDelivery(booking, outcome);
+    }
+    return;
+  }
+
   const quoteReady = linkedEstimate && (
     payload.resumeCreation !== true || booking.state !== "AWAITING_PAYMENT" ||
     (booking.advanceCents !== null && booking.depositCents !== null) ||
@@ -243,7 +303,10 @@ async function generateQuote(
   if (payload.resend === true && linkedEstimate && quoteReady) {
     if (linkedEstimate.sentAt || linkedEstimate.delivery?.status === "ACCEPTED") return;
     const estimate = await client.getEstimate(linkedEstimate.holdedId);
-    if (!estimate || !booking.customer.holdedContactId || estimate.contactId !== booking.customer.holdedContactId) {
+    const estimateIsDraft = estimate?.draft === true || estimate?.status?.trim().toLowerCase() === "draft";
+    const estimateIsApproved = estimate?.draft === false || estimate?.status?.trim().toLowerCase() === "approved";
+    if (!estimate || !booking.customer.holdedContactId || estimate.contactId !== booking.customer.holdedContactId ||
+      (!estimateIsDraft && !estimateIsApproved)) {
       throw new QuotingError("incomplete_configuration", "Linked estimate could not be verified");
     }
     const corrected = await client.removeEstimateDeductions(linkedEstimate.holdedId, {
@@ -252,15 +315,12 @@ async function generateQuote(
       serviceIds: [config.depositServiceId, config.advanceServiceId].filter((id): id is string => Boolean(id)),
     });
     await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
-    // Holded answers 400 when approving an estimate that is already out of draft.
-    if (corrected || estimate.draft !== false) {
+    if (corrected || estimateIsDraft) {
       await client.approveEstimate(linkedEstimate.holdedId);
       await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
     }
-    const delivery = await prepareDocumentDelivery(linkedEstimate.id, client);
-    if (delivery) {
-      await deliverPreparedDocument(linkedEstimate.id, client, config.mailTemplateId, bookingManagementSubject(config.language));
-    }
+    const outcome = await prepareAndDeliverEstimate(booking.id, linkedEstimate.id, client, config);
+    await startPaymentWindowAfterDelivery(booking, outcome);
     return;
   }
 
@@ -411,29 +471,28 @@ async function generateQuote(
     await recordBookingOperation(booking.id, "ESTIMATE_REUSED");
   }
 
-  const paymentDueAt = booking.paymentDueAt ?? (send ? paymentDeadlineFrom(new Date()) : null);
+  let existingEstimateIsDraft = false;
+  if (existingEstimate) {
+    const remoteEstimate = await client.getEstimate(estimateId);
+    existingEstimateIsDraft = remoteEstimate?.draft === true || remoteEstimate?.status?.trim().toLowerCase() === "draft";
+    const remoteEstimateIsApproved = remoteEstimate?.draft === false || remoteEstimate?.status?.trim().toLowerCase() === "approved";
+    if (!remoteEstimate || remoteEstimate.contactId !== holdedContactId ||
+      (!existingEstimateIsDraft && !remoteEstimateIsApproved)) {
+      throw new QuotingError("incomplete_configuration", "Linked estimate could not be verified");
+    }
+  }
 
-  await client.replaceEstimateLines(estimateId, [stayLine]);
+  if (!existingEstimate || existingEstimateIsDraft) {
+    await client.replaceEstimateLines(estimateId, [stayLine]);
 
-  // Step 5 — approve, which takes the estimate out of draft, then send. The
-  // customer must receive the final document, not the working copy.
-  await client.approveEstimate(estimateId);
-  await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
+    // Step 5 — approve, which takes the estimate out of draft, then send. The
+    // customer must receive the final document, not the working copy.
+    await client.approveEstimate(estimateId);
+    await recordBookingOperation(booking.id, "ESTIMATE_APPROVED");
+  }
 
   if (!estimateDocumentId) {
     throw new QuotingError("unknown_booking", "Estimate document was not persisted");
-  }
-  // A held quote stays in Holded for the operator to review and send later.
-  if (send) {
-    const delivery = await prepareDocumentDelivery(estimateDocumentId, client);
-    if (delivery) {
-      await deliverPreparedDocument(
-        estimateDocumentId,
-        client,
-        config.mailTemplateId,
-        bookingManagementSubject(config.language),
-      );
-    }
   }
 
   await db.bookingRequest.update({
@@ -443,9 +502,14 @@ async function generateQuote(
       unitPriceCents: quote.unitPriceCents,
       advanceCents: quote.advanceCents,
       depositCents: quote.depositCents,
-      paymentDueAt,
     },
   });
+
+  // A held quote stays in Holded for the operator to review and send later.
+  if (send) {
+    const outcome = await prepareAndDeliverEstimate(booking.id, estimateDocumentId, client, config);
+    await startPaymentWindowAfterDelivery(booking, outcome);
+  }
 
   logger.info(
     {
@@ -468,10 +532,19 @@ export async function runQuoteJob(
   } catch (error) {
     const bookingRequestId = (job.payload as { bookingRequestId?: unknown }).bookingRequestId;
     const failureCode = operationFailureCode(error);
-    if (typeof bookingRequestId === "string" && !(error instanceof QuotingError && error.code === "unknown_booking")) {
+    const deliveryPreparationFailed = error instanceof QuoteDeliveryPreparationError;
+    if (typeof bookingRequestId === "string" && !deliveryPreparationFailed &&
+      !(error instanceof QuotingError && error.code === "unknown_booking")) {
       await recordBookingOperation(bookingRequestId, "QUOTE_FAILED", failureCode);
     }
-    logger.warn({ event: "booking_quote_failed", jobId: job.id, failureCode }, "quote processing failed");
+    logger.warn(
+      {
+        event: deliveryPreparationFailed ? "booking_delivery_prepare_failed" : "booking_quote_failed",
+        jobId: job.id,
+        failureCode,
+      },
+      deliveryPreparationFailed ? "document delivery preparation failed" : "quote processing failed",
+    );
     throw error;
   }
 }
