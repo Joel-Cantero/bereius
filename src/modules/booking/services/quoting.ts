@@ -264,6 +264,12 @@ async function generateQuote(
     throw new QuotingError("unknown_booking", "Booking request not found");
   }
   const linkedEstimate = booking.documents.find((document) => document.type === "ESTIMATE");
+  if (payload.resend !== true && linkedEstimate && (
+    linkedEstimate.sentAt !== null ||
+    (linkedEstimate.delivery && ["ACCEPTED", "UNKNOWN", "IN_FLIGHT"].includes(linkedEstimate.delivery.status))
+  )) {
+    return;
+  }
   if (booking.state !== "AWAITING_PAYMENT" &&
     !(payload.resend === true && linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state))) {
     throw new QuotingError(
