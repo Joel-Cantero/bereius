@@ -302,6 +302,14 @@ const contactPageSchema = z
   })
   .catchall(z.unknown());
 
+const delegateContactPageSchema = z
+  .object({
+    items: z.array(z.unknown()),
+    has_more: z.boolean().optional(),
+    cursor: z.string().nullish(),
+  })
+  .catchall(z.unknown());
+
 const estimateSummarySchema = z
   .object({
     id: z.string().min(1),
@@ -1357,7 +1365,7 @@ export function createHoldedClient(
         if (cursor) query.set("cursor", cursor);
 
         const payload = await request("GET", `/contacts?${query.toString()}`);
-        const parsed = contactPageSchema.safeParse(payload);
+        const parsed = delegateContactPageSchema.safeParse(payload);
         if (!parsed.success) {
           throw new HoldedError(
             "malformed_response",
@@ -1365,11 +1373,13 @@ export function createHoldedClient(
           );
         }
 
-        for (const person of parsed.data.items) {
-          const code = person.code?.trim() ?? "";
+        for (const candidate of parsed.data.items) {
+          if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+          const person = candidate as Record<string, unknown>;
+          const code = typeof person.code === "string" ? person.code.trim() : "";
           if (!code.startsWith(markerPrefix)) continue;
 
-          const normalizedEmail = person.email?.trim().toLowerCase() ?? "";
+          const normalizedEmail = typeof person.email === "string" ? person.email.trim().toLowerCase() : "";
           if (
             !delegateCodeSuffixSchema.safeParse(code.slice(markerPrefix.length)).success ||
             person.is_person !== true ||

@@ -48,7 +48,7 @@ describe("transactional email architecture", () => {
     expect(packageManifest.packageManager).toBe("pnpm@11.22.0");
     expect(packageManifest.dependencies).toMatchObject({
       "@react-email/components": "1.0.12",
-      "@react-email/render": "2.1.0",
+      "@react-email/render": "2.2.0",
     });
     for (const packageName of [
       "react-email",
@@ -61,7 +61,7 @@ describe("transactional email architecture", () => {
       /'@react-email\/components':\n\s+specifier: 1\.0\.12\n\s+version: 1\.0\.12/u,
     );
     expect(importer).toMatch(
-      /'@react-email\/render':\n\s+specifier: 2\.1\.0\n\s+version: 2\.1\.0/u,
+      /'@react-email\/render':\n\s+specifier: 2\.2\.0\n\s+version: 2\.2\.0/u,
     );
     expect(lockfile).not.toMatch(
       /^  (?:react-email|'@react-email\/preview-server)@/mu,

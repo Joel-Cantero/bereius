@@ -66,7 +66,19 @@ function stubClient(options: StubOptions = {}) {
     ),
     listEstimatesByContact: vi.fn(async () => track("listEstimatesByContact", () => [])),
     listEstimates: vi.fn(async () => track("listEstimates", () => [])),
-    getEstimate: vi.fn(async () => track("getEstimate", () => null)),
+    getEstimate: vi.fn(async (estimateId: string) =>
+      track("getEstimate", () => ({
+        id: estimateId,
+        number: "PRE-1",
+        description: null,
+        date: null,
+        totalCents: null,
+        status: "draft",
+        contactId: "contact-1",
+        contactName: null,
+        draft: true,
+      })),
+    ),
     getInvoice: vi.fn(async () => track("getInvoice", () => null)),
     listNumberingSeries: vi.fn(async (type) =>
       track("listNumberingSeries", () =>
@@ -230,7 +242,7 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
       expect(client.readService).not.toHaveBeenCalled();
       expect(client.removeEstimateDeductions).toHaveBeenCalledOnce();
       expect(client.replaceEstimateLines).not.toHaveBeenCalled();
-      expect(client.approveEstimate).toHaveBeenCalledOnce();
+      expect(client.approveEstimate).not.toHaveBeenCalled();
       expect(client.listDelegateEmails).not.toHaveBeenCalled();
       expect(await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } })).toEqual(before);
       const delivery = await db.documentDelivery.findUniqueOrThrow({ where: { holdedDocumentId: document.id } });
@@ -261,8 +273,14 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
   });
 
   it("retries approval after correction without sending an unapproved contract", async () => {
-    const { booking, client } = await issuedBooking();
-    vi.mocked(client.removeEstimateDeductions).mockResolvedValueOnce(true).mockResolvedValue(false);
+    const { booking, document, client } = await issuedBooking();
+    vi.mocked(client.removeEstimateDeductions).mockImplementationOnce(async () => {
+      vi.mocked(client.getEstimate).mockResolvedValue({
+        id: document.holdedId, number: "PRE-1", description: null, date: null,
+        totalCents: null, status: "draft", contactId: "contact-1", contactName: null, draft: true,
+      });
+      return true;
+    }).mockResolvedValue(false);
     vi.mocked(client.approveEstimate).mockRejectedValueOnce(new Error("approval failed"));
     await requestQuoteResend(booking.id, await actor());
     const queued = await queuedJob(booking.id);
@@ -787,16 +805,55 @@ describe.skipIf(!runIntegrationTests)("booking quoting integration", () => {
     const { client } = stubClient();
     vi.mocked(client.listDelegateEmails).mockRejectedValueOnce(new Error("Holded unavailable"));
 
-    await expect(
-      runQuoteJob(job(booking.id), { client, config }),
-    ).rejects.toThrow("Holded unavailable");
+    await expect(runQuoteJob(job(booking.id), { client, config })).rejects.toMatchObject({
+      name: "QuoteDeliveryPreparationError",
+      code: "unexpected",
+    });
 
     expect(client.sendEstimate).not.toHaveBeenCalled();
+    const document = await db.holdedDocument.findFirstOrThrow({ where: { bookingRequestId: booking.id } });
+    const afterFailure = await db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } });
+    expect(afterFailure).toMatchObject({
+      billableUnits: expect.any(Number),
+      unitPriceCents: expect.any(Number),
+      advanceCents: expect.any(Number),
+      depositCents: expect.any(Number),
+      paymentDueAt: null,
+    });
     await expect(
       db.documentDelivery.count({
         where: { holdedDocument: { bookingRequestId: booking.id } },
       }),
     ).resolves.toBe(0);
+
+    const events = await db.bookingOperationEvent.findMany({
+      where: { bookingRequestId: booking.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(events.map((event) => event.type)).toContain("DELIVERY_FAILED");
+    expect(events.map((event) => event.type)).not.toContain("QUOTE_FAILED");
+
+    const retry = stubClient();
+    vi.mocked(retry.client.getEstimate).mockResolvedValue({
+      id: document.holdedId,
+      number: document.documentNumber,
+      description: null,
+      date: null,
+      totalCents: document.totalCents,
+      status: "approved",
+      contactId: "contact-1",
+      contactName: null,
+      draft: false,
+    });
+    await runQuoteJob(job(booking.id), { client: retry.client, config });
+
+    expect(retry.client.readService).not.toHaveBeenCalled();
+    expect(retry.client.createEstimate).not.toHaveBeenCalled();
+    expect(retry.client.replaceEstimateLines).not.toHaveBeenCalled();
+    expect(retry.client.approveEstimate).not.toHaveBeenCalled();
+    expect(retry.client.sendEstimate).toHaveBeenCalledOnce();
+    await expect(db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } }))
+      .resolves.toMatchObject({ paymentDueAt: expect.any(Date) });
   });
 
   it("parks an ambiguous send outcome and does not resend on quote retry", async () => {
