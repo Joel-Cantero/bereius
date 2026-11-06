@@ -170,8 +170,6 @@ export default async function BankMovementsPage({
 
       <MovementFilters
         filters={parsed.data}
-        accounts={projection.accounts}
-        currencies={projection.currencies}
       />
 
       {projection.totals.length > 0 ? (
@@ -186,7 +184,7 @@ export default async function BankMovementsPage({
                 className="grid grid-cols-[minmax(4rem,0.5fr)_1fr_1fr] gap-4 py-3 text-sm"
               >
                 <div>
-                  <dt className="sr-only">{t("filters.currency")}</dt>
+                  <dt className="sr-only">{t("table.currency")}</dt>
                   <dd className="font-medium">{totals.currency}</dd>
                 </div>
                 <div>

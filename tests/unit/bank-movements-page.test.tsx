@@ -31,8 +31,6 @@ const labels: Record<string, string> = {
   "filters.direction": "Direction",
   "filters.from": "From",
   "filters.to": "To",
-  "filters.account": "Account",
-  "filters.currency": "Currency",
   "filters.search": "Search",
   "filters.all": "All",
   "directions.income": "Income",
@@ -463,11 +461,11 @@ describe("bank movement controls and presentation", () => {
     render(
       <MovementFilters
         filters={{ ...defaultFilters, direction: "income", q: "synthetic", page: 4 }}
-        accounts={[movement.account]}
-        currencies={["EUR"]}
       />,
     );
 
+    expect(screen.queryByLabelText("Account")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
     await userEvent.selectOptions(screen.getByLabelText("Direction"), "expense");
     expect(mocks.replace).toHaveBeenLastCalledWith(
       "/bank-movements?direction=expense&q=synthetic",

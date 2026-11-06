@@ -816,12 +816,8 @@
       "direction": "Direcció",
       "from": "Des de",
       "to": "Fins a",
-      "account": "Compte",
-      "currency": "Divisa",
       "search": "Cerca concepte o referència",
-      "all": "Totes les direccions",
-      "allAccounts": "Tots els comptes",
-      "allCurrencies": "Totes les divises"
+      "all": "Totes les direccions"
     },
     "directions": {
       "income": "Ingrés",

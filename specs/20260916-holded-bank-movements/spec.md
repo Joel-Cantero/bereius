@@ -14,8 +14,8 @@ movement visibility and booking-payment reconciliation.
 ### User Story 1 - Import Reliable Bank Movements (Priority: P1)
 
 An administrator selects the Holded treasury account and the initial import date. Bereius then
-imports every available movement, classifies valid movements by money direction, and keeps the
-local records current without creating duplicates.
+imports every available income, ignores expenses, and keeps the local records current without
+creating duplicates.
 
 **Why this priority**: Complete, idempotent local data is the foundation for both operational
 visibility and reliable payment reconciliation.
@@ -29,8 +29,8 @@ verify the resulting movements, classifications, incidents, and safe progress po
 1. **Given** an account with no prior import and no custom start date, **When** its first
    synchronization runs, **Then** movements from the preceding 90 days are considered and every
    available page is processed.
-2. **Given** valid positive and negative movements, **When** they are imported, **Then** each is
-  stored once and classified respectively as income or expense from the signed amount.
+2. **Given** valid positive and negative movements, **When** they are synchronized, **Then** each
+  positive movement is stored once as income and negative movements are ignored.
 3. **Given** a movement whose descriptive text or status suggests a direction different from its
   signed amount, **When** it is imported, **Then** the signed amount remains authoritative and no
   descriptive word affects classification.
@@ -62,8 +62,9 @@ the expected set.
 1. **Given** imported movements, **When** the view opens, **Then** it shows newest dates first and
    displays date, concept, counterparty, account, amount, currency, status, and textual
    classification.
-2. **Given** a mixed movement set, **When** the user applies direction, date interval, account,
-   currency, and text filters, **Then** only movements satisfying all active filters are shown.
+2. **Given** imported movements from the configured account and currency, **When** the user applies
+  direction, date interval, and text filters, **Then** only movements satisfying all active
+  filters are shown without account or currency selectors.
 3. **Given** filtered movements in more than one currency, **When** totals are displayed, **Then**
    income and expense totals are separate and no total combines currencies.
 4. **Given** income and expense rows, **When** they are perceived without color, **Then** visible
@@ -228,6 +229,8 @@ to existing data and unrelated workflows.
 - **FR-060**: Initial, manual, explicit-retry, and pre-expiry synchronization MUST scan or resume the
   complete retained window. A recent scheduled scan MUST NOT authorize retention-floor advancement,
   and only a terminal exhausted run covering the complete prior window MAY do so.
+- **FR-061**: Synchronization MUST persist valid income movements only. Valid expense movements
+  MUST be ignored without being stored or counted as synchronization incidents.
 
 #### Validation and Classification
 
@@ -266,8 +269,8 @@ to existing data and unrelated workflows.
 - **FR-031**: The initial ordering MUST be movement date descending, with deterministic ordering
   between movements sharing a date.
 - **FR-032**: Users MUST be able to filter by all directions, income only, or expense only; by date
-  interval; account; currency; and case-insensitive text across concept, reference, and
-  counterparty.
+  interval; and case-insensitive text across concept and reference. The view MUST NOT expose
+  account or currency selectors.
 - **FR-033**: Income totals and expense totals MUST be calculated separately from all valid
   movements matching the active filter, not merely the currently visible page.
 - **FR-034**: Totals MUST remain separate by currency. Income totals MUST sum incoming values and

@@ -816,12 +816,8 @@
       "direction": "Dirección",
       "from": "Desde",
       "to": "Hasta",
-      "account": "Cuenta",
-      "currency": "Divisa",
       "search": "Buscar concepto o referencia",
-      "all": "Todas las direcciones",
-      "allAccounts": "Todas las cuentas",
-      "allCurrencies": "Todas las divisas"
+      "all": "Todas las direcciones"
     },
     "directions": {
       "income": "Ingreso",
