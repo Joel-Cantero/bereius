@@ -14,9 +14,6 @@ export interface MovementFiltersProps {
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
-const SELECT_CLASS =
-  "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
-
 export function MovementFilters({
   filters,
 }: MovementFiltersProps) {
@@ -36,12 +33,13 @@ export function MovementFilters({
   function apply(changes: Record<string, string>) {
     const params = new URLSearchParams(window.location.search);
     for (const [name, value] of Object.entries(changes)) {
-      if (value && !(name === "direction" && value === "all")) {
+      if (value) {
         params.set(name, value);
       } else {
         params.delete(name);
       }
     }
+    params.delete("direction");
     params.delete("page");
 
     startTransition(() => {
@@ -56,24 +54,7 @@ export function MovementFilters({
       aria-busy={pending}
       onSubmit={(event) => event.preventDefault()}
     >
-      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Field>
-          <FieldLabel htmlFor="movement-direction">
-            {t("filters.direction")}
-          </FieldLabel>
-          <select
-            id="movement-direction"
-            name="direction"
-            defaultValue={filters.direction}
-            onChange={(event) => apply({ direction: event.target.value })}
-            className={SELECT_CLASS}
-          >
-            <option value="all">{t("filters.all")}</option>
-            <option value="income">{t("directions.income")}</option>
-            <option value="expense">{t("directions.expense")}</option>
-          </select>
-        </Field>
-
+      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Field>
           <FieldLabel htmlFor="movement-from">{t("filters.from")}</FieldLabel>
           <Input

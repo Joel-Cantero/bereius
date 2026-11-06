@@ -47,8 +47,8 @@ verify the resulting movements, classifications, incidents, and safe progress po
 
 ### User Story 2 - Find and Understand Movements (Priority: P1)
 
-An authorized operator or administrator opens a private bank-movements view, quickly narrows the
-list to the relevant records, and sees income and expense totals for exactly that filtered set.
+An authorized operator or administrator opens a private bank-movements view, narrows income
+records by date or text, and sees totals for the matching income only.
 
 **Why this priority**: Staff need a trustworthy, searchable view to investigate transfers and
 support booking-payment decisions.
@@ -62,13 +62,12 @@ the expected set.
 1. **Given** imported movements, **When** the view opens, **Then** it shows newest dates first and
    displays date, concept, counterparty, account, amount, currency, status, and textual
    classification.
-2. **Given** imported movements from the configured account and currency, **When** the user applies
-  direction, date interval, and text filters, **Then** only movements satisfying all active
-  filters are shown without account or currency selectors.
-3. **Given** filtered movements in more than one currency, **When** totals are displayed, **Then**
-   income and expense totals are separate and no total combines currencies.
-4. **Given** income and expense rows, **When** they are perceived without color, **Then** visible
-   text and accessible semantics still distinguish their directions.
+2. **Given** imported incomes and previously stored expenses, **When** the user opens the view or
+  applies a date or text filter, **Then** only matching incomes and their totals are shown.
+3. **Given** a legacy URL requesting expenses, **When** the page loads, **Then** it still displays
+  only incomes and exposes no direction selector.
+4. **Given** filtered incomes in more than one currency, **When** totals are displayed, **Then**
+  income totals remain separate and no total combines currencies.
 5. **Given** no records, an in-progress load, a partial synchronization, or a failed latest
    synchronization, **When** the view renders, **Then** it shows the corresponding state while
    retaining access to previously imported data.
@@ -263,21 +262,17 @@ to existing data and unrelated workflows.
 
 - **FR-029**: Bereius MUST provide a private, non-indexable bank-movements view available only to
   authorized operators and administrators.
-- **FR-030**: Each displayed movement MUST show date, concept, counterparty, account, amount,
-  currency, status, and textual income/expense classification; value date and reference MAY be
-  available as secondary details.
+- **FR-030**: Each displayed movement MUST be an income and show date, concept, counterparty,
+  account, amount, currency, status, and textual income classification; value date and reference
+  MAY be available as secondary details.
 - **FR-031**: The initial ordering MUST be movement date descending, with deterministic ordering
   between movements sharing a date.
-- **FR-032**: Users MUST be able to filter by all directions, income only, or expense only; by date
-  interval; and case-insensitive text across concept and reference. The view MUST NOT expose
-  account or currency selectors.
-- **FR-033**: Income totals and expense totals MUST be calculated separately from all valid
-  movements matching the active filter, not merely the currently visible page.
-- **FR-034**: Totals MUST remain separate by currency. Income totals MUST sum incoming values and
-  expense totals MUST show the summed outgoing magnitude; mixed currencies MUST never be converted
-  or combined.
-- **FR-035**: Income and expense MUST differ through visible text and accessible semantics in
-  addition to any color or styling.
+- **FR-032**: Users MUST be able to filter by date interval and case-insensitive text across
+  concept and reference. The view MUST NOT expose account, currency, or direction selectors.
+- **FR-033**: The movement view MUST return and total only income movements matching the active
+  filters, including when historical expense records remain stored.
+- **FR-034**: Income totals MUST remain separate by currency and MUST never be converted or combined.
+- **FR-035**: Each displayed movement MUST include visible income text and accessible semantics.
 - **FR-036**: The view MUST show distinct loading, empty, active-synchronization, partial-result,
   and error states. Partial and error states MUST preserve access to earlier movements.
 - **FR-037**: The view MUST show live manual-refresh progress when available, the latest attempt's
@@ -427,15 +422,14 @@ personal data; the unredacted response MUST NOT be committed, logged, or retaine
   duplicate records for the same account and stable provider identifier.
 - **SC-003**: A corrected provider movement covered by a scheduled overlap or full-window scan
   updates the existing local record in every acceptance test and creates no additional record.
-- **SC-004**: For every verified multi-page response, the number of valid imported movements plus
-  visible invalid-item incidents equals the number of provider items across all pages.
+- **SC-004**: For every verified multi-page response, every provider item is accounted for as a
+  stored income, an ignored expense, or a visible invalid-item incident.
 - **SC-005**: Under normal provider availability, a new movement appears within six hours through
   automatic synchronization or within two minutes after an accepted manual refresh request.
 - **SC-006**: In a repeatable timed usability scenario starting on the movement page, an authorized
-  user can locate a named synthetic movement by direction, date, account, currency, or text in
-  under one minute.
-- **SC-007**: For every filter acceptance dataset, displayed income and expense totals exactly match
-  the filtered valid movements and remain separated by currency.
+  user can locate a named synthetic income by date or text in under one minute.
+- **SC-007**: For every filter acceptance dataset, displayed income totals exactly match the
+  filtered valid income movements and remain separated by currency.
 - **SC-008**: Every tested interruption can be retried to completion with zero valid movements lost,
   zero duplicates, and no safe progress point beyond the last successfully processed movement.
 - **SC-009**: During a simulated Holded outage, 100% of previously imported movements remain
@@ -463,8 +457,7 @@ personal data; the unredacted response MUST NOT be committed, logged, or retaine
   only evidenced Holded movement currency. Persistence and grouped UI totals retain an ISO-shaped
   currency field so a later evidence-backed expansion does not require a schema redesign. Monetary
   comparison and totals use exact decimal values, not binary rounding.
-- Expense totals are presented as positive outgoing magnitudes under an explicit expense label;
-  row-level classification and accessible text carry the direction.
+- Historical expenses remain stored but are excluded from the bank-movements view and its totals.
 - The first clean scan may use an administrator-selected historical start date. Once it completes,
   the 90-day synchronization floor advances monotonically so pruned unmatched movements are not
   re-imported; retained payment/proposal evidence outside that floor is no longer polled for

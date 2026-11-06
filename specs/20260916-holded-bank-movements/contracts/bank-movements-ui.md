@@ -24,20 +24,18 @@ roles. Keep treasury account configuration in the existing administrator-only in
 
 ```text
 GET /[locale]/bank-movements
-  ?direction=all|income|expense
-  &from=YYYY-MM-DD
+  ?from=YYYY-MM-DD
   &to=YYYY-MM-DD
   &q=<text>
   &page=<positive-integer>
 ```
 
-All parameters are optional and server-validated. The UI does not expose account or currency
-selectors: synchronization uses the one configured EUR account. Previously generated URLs may
-continue to submit those filter parameters through the server schema.
+All parameters are optional and server-validated. The page returns only income movements and does
+not expose account, currency, or direction selectors. Previously generated account and currency
+parameters remain supported; a legacy direction parameter is ignored.
 
 | Parameter | Default | Validation/behavior |
 |---|---|---|
-| `direction` | `all` | Exact enum; maps to stored direction when not `all`. |
 | `from` | absent | Valid inclusive bank calendar date. |
 | `to` | absent | Valid inclusive bank calendar date; must not precede `from`. |
 | `q` | empty | Trim/collapse whitespace, max 100 characters, case-insensitive narrative contains. |
@@ -73,18 +71,17 @@ BankMovementRow
 |-- amountMinor: decimal-string serialization of signed BigInt
 |-- currency: ISO code
 |-- status: string | null
-|-- direction: income | expense
+|-- direction: income
 `-- proposals: authorized minimal proposal summaries
 
 CurrencyTotals
 |-- currency: ISO code
 |-- incomeMinor: non-negative decimal string
-`-- expenseMinor: non-negative absolute decimal string
 ```
 
 List rows are ordered by `bookingDate DESC`, then provider movement ID for a deterministic tie.
-Totals are grouped and summed by currency plus direction over every matching valid movement, not
-only the current 50-row page. No conversion or cross-currency grand total exists.
+Totals are grouped and summed by currency over every matching income, not only the current 50-row
+page. No conversion or cross-currency grand total exists.
 
 ## Presentation States
 
@@ -99,9 +96,10 @@ only the current 50-row page. No conversion or cross-currency grand total exists
 | `PARTIAL` | Committed progress remains visible, but exhaustion was not proven or item incidents occurred; show an incident summary and explicit retry control. |
 | `FAILED` | No provider page committed; existing rows from earlier runs remain visible with a sanitized category and explicit retry control. |
 
-Every row includes visible **Income** or **Expense** text and accessible semantics in addition to
-styling. Negative/positive signs remain visible. Missing optional concept/counterparty/status/value
-date uses one neutral localized empty label rather than fabricated data.
+Every row is an income and includes visible **Income** text and accessible semantics in addition to
+styling. Positive signs remain visible. Historical expense records remain stored but are excluded
+from this view and its totals. Missing optional concept/counterparty/status/value date uses one
+neutral localized empty label rather than fabricated data.
 
 For a configured account, the integration is degraded when the latest run is `RETRYING`, `PARTIAL`,
 or `FAILED`, or when no run is active and `lastSuccessfulAt` is absent or more than six hours old.
@@ -209,8 +207,9 @@ booking action succeeds, and `/api/health` remains HTTP 200 while this page show
 ## UI Contract Tests
 
 - Operator/admin access, signed-out localized callback, and admin-only account configuration.
-- Direction/date/text filtering, inclusive dates, reset behavior, deterministic order, and 50-row paging.
-- Totals over the full filtered set, separated by currency and direction.
+- Income-only results including when old expense records exist or a legacy URL requests expenses.
+- Date/text filtering, inclusive dates, reset behavior, deterministic order, and 50-row paging.
+- Income totals over the full filtered set, separated by currency.
 - Empty/loading/queued/running/retrying/success/partial/error rendering with retained stale rows.
 - Manual request de-duplication, cooldown, retry, accessible announcements, keyboard operation, and
   non-color direction text.

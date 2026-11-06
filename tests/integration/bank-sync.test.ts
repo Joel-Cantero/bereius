@@ -323,7 +323,7 @@ function movementFilters(
 describe.skipIf(!runIntegrationTests || !databaseUrl)(
   "bank movement queries",
   () => {
-    it("combines every filter and keeps inactive account history available", async () => {
+    it("returns only income while keeping inactive account history available", async () => {
       const scope = bankingScope("bank-query-filters");
       const firstData = scope.treasuryAccount({
         displayName: "Alpha synthetic account",
@@ -372,31 +372,35 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
       ];
       await db.bankMovement.createMany({ data: movements });
 
-      await expect(
-        queryBankMovements(movementFilters({ direction: "income" })),
-      ).resolves.toMatchObject({
+      const expectedIncomes = {
         rows: [{ id: movements[2]!.id }, { id: movements[0]!.id }],
         totalRows: 2,
-      });
+      };
+      await expect(queryBankMovements(movementFilters())).resolves.toMatchObject(
+        expectedIncomes,
+      );
+      await expect(
+        queryBankMovements(movementFilters({ direction: "expense" })),
+      ).resolves.toMatchObject(expectedIncomes);
       await expect(
         queryBankMovements(
           movementFilters({ from: "2026-09-11", to: "2026-09-12" }),
         ),
       ).resolves.toMatchObject({
-        rows: [{ id: movements[2]!.id }, { id: movements[1]!.id }],
-        totalRows: 2,
+        rows: [{ id: movements[2]!.id }],
+        totalRows: 1,
       });
       await expect(
         queryBankMovements(
           movementFilters({ account: secondData.holdedAccountId }),
         ),
       ).resolves.toMatchObject({
-        rows: [{ id: movements[3]!.id }, { id: movements[2]!.id }],
-        totalRows: 2,
+        rows: [{ id: movements[2]!.id }],
+        totalRows: 1,
       });
       await expect(
         queryBankMovements(movementFilters({ currency: "USD" })),
-      ).resolves.toMatchObject({ totalRows: 2 });
+      ).resolves.toMatchObject({ totalRows: 1 });
       await expect(
         queryBankMovements(movementFilters({ q: "beta REFERENCE" })),
       ).resolves.toMatchObject({
@@ -498,8 +502,8 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
 
       expect(first.rows).toHaveLength(50);
       expect(first.totals).toEqual([
-        { currency: "EUR", incomeMinor: "5100", expenseMinor: "250" },
-        { currency: "USD", incomeMinor: "500", expenseMinor: "0" },
+        { currency: "EUR", incomeMinor: "5100" },
+        { currency: "USD", incomeMinor: "500" },
       ]);
       expect(second.totals).toEqual(first.totals);
       expect(first.currencies).toEqual(["EUR", "USD"]);

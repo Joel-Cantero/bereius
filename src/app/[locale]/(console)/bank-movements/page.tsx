@@ -47,7 +47,6 @@ function scalar(value: string | string[] | undefined) {
 
 function filtersQuery(filters: BankMovementFilters, page: number) {
   const params = new URLSearchParams();
-  if (filters.direction !== "all") params.set("direction", filters.direction);
   if (filters.from) params.set("from", filters.from);
   if (filters.to) params.set("to", filters.to);
   if (filters.account) params.set("account", filters.account);
@@ -105,7 +104,6 @@ export default async function BankMovementsPage({
   const t = await getTranslations({ locale, namespace: "BankMovements" });
   const raw = await searchParams;
   const parsed = bankMovementFiltersSchema.safeParse({
-    direction: scalar(raw.direction),
     from: scalar(raw.from),
     to: scalar(raw.to),
     account: scalar(raw.account),
@@ -145,15 +143,13 @@ export default async function BankMovementsPage({
     1,
     Math.ceil(projection.totalRows / projection.pageSize),
   );
-  const hasActiveFilters =
-    parsed.data.direction !== "all" ||
-    Boolean(
-      parsed.data.from ||
-        parsed.data.to ||
-        parsed.data.account ||
-        parsed.data.currency ||
-        parsed.data.q,
-    );
+  const hasActiveFilters = Boolean(
+    parsed.data.from ||
+      parsed.data.to ||
+      parsed.data.account ||
+      parsed.data.currency ||
+      parsed.data.q,
+  );
 
   return (
     <main className="flex flex-col gap-6">
@@ -181,7 +177,7 @@ export default async function BankMovementsPage({
             {projection.totals.map((totals) => (
               <dl
                 key={totals.currency}
-                className="grid grid-cols-[minmax(4rem,0.5fr)_1fr_1fr] gap-4 py-3 text-sm"
+                className="grid grid-cols-[minmax(4rem,0.5fr)_1fr] gap-4 py-3 text-sm"
               >
                 <div>
                   <dt className="sr-only">{t("table.currency")}</dt>
@@ -194,19 +190,6 @@ export default async function BankMovementsPage({
                   <dd className="font-medium tabular-nums">
                     {formatMinorUnits(
                       totals.incomeMinor,
-                      totals.currency,
-                      locale,
-                      "never",
-                    )}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">
-                    {t("totals.expense")}
-                  </dt>
-                  <dd className="font-medium tabular-nums">
-                    {formatMinorUnits(
-                      totals.expenseMinor,
                       totals.currency,
                       locale,
                       "never",
