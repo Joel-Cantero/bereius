@@ -727,7 +727,7 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
         status: "SUCCEEDED",
         pageCount: 2,
         itemCount: 3,
-        insertedCount: 3,
+        insertedCount: 2,
         updatedCount: 0,
         unchangedCount: 0,
         incidentCount: 0,
@@ -1416,7 +1416,7 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
         status: "PARTIAL",
         pageCount: 1,
         itemCount: 6,
-        insertedCount: 2,
+        insertedCount: 1,
         updatedCount: 0,
         unchangedCount: 0,
         incidentCount: 4,
@@ -1430,7 +1430,6 @@ describe.skipIf(!runIntegrationTests || !databaseUrl)(
         }),
       ).resolves.toEqual([
         { amountMinor: BigInt(2_500), direction: "INCOME" },
-        { amountMinor: BigInt(-1_000), direction: "EXPENSE" },
       ]);
       const incidents = await db.bankSyncIncident.findMany({
         where: { runId: run.id },

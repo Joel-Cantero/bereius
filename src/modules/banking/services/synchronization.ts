@@ -558,7 +558,7 @@ export async function processBankSync(
       );
 
       for (const { result } of parsedItems) {
-        if (!result.ok) continue;
+        if (!result.ok || result.movement.direction !== "INCOME") continue;
         const movement = result.movement;
         const existing = await transaction.bankMovement.findUnique({
           where: {
