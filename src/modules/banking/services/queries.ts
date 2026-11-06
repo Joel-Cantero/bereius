@@ -326,9 +326,7 @@ export async function queryBankMovements(
   }
 
   const where: Prisma.BankMovementWhereInput = {
-    ...(parsed.direction !== "all"
-      ? { direction: parsed.direction === "income" ? "INCOME" : "EXPENSE" }
-      : {}),
+    direction: "INCOME",
     ...(parsed.from || parsed.to
       ? {
           bookingDate: {
@@ -387,7 +385,7 @@ export async function queryBankMovements(
     }),
     db.bankMovement.count({ where }),
     db.bankMovement.groupBy({
-      by: ["currency", "direction"],
+      by: ["currency"],
       where,
       _sum: { amountMinor: true },
     }),
@@ -398,11 +396,9 @@ export async function queryBankMovements(
     const totals = totalsByCurrency.get(group.currency) ?? {
       currency: group.currency,
       incomeMinor: "0",
-      expenseMinor: "0",
     };
     const amount = group._sum.amountMinor ?? BigInt(0);
-    if (group.direction === "INCOME") totals.incomeMinor = amount.toString();
-    else totals.expenseMinor = (-amount).toString();
+    totals.incomeMinor = amount.toString();
     totalsByCurrency.set(group.currency, totals);
   }
 

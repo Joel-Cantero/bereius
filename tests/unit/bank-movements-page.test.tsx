@@ -28,11 +28,9 @@ const labels: Record<string, string> = {
   clearFilters: "Clear filters",
   empty: "No bank movements match these filters.",
   loading: "Loading bank movements",
-  "filters.direction": "Direction",
   "filters.from": "From",
   "filters.to": "To",
   "filters.search": "Search",
-  "filters.all": "All",
   "directions.income": "Income",
   "directions.expense": "Expense",
   "statuses.pending": "Pending",
@@ -238,11 +236,11 @@ const proposal: ReconciliationProposalSummary = {
 
 function result(overrides: Partial<BankMovementPage> = {}): BankMovementPage {
   return {
-    rows: [movement],
+    rows: [reconciledIncome],
     totalRows: 1,
     page: 1,
     pageSize: 50,
-    totals: [{ currency: "EUR", incomeMinor: "0", expenseMinor: "1234" }],
+    totals: [{ currency: "EUR", incomeMinor: "4321" }],
     accounts: [movement.account],
     currencies: ["EUR"],
     synchronization: synchronization(),
@@ -371,7 +369,7 @@ describe("bank movements page", () => {
   it("rejects invalid filters without issuing a database query", async () => {
     render(
       await BankMovementsPage(
-        pageProps("en", { direction: "sideways", page: "999999999999999999999" }),
+        pageProps("en", { from: "not-a-date", page: "999999999999999999999" }),
       ),
     );
 
@@ -402,6 +400,7 @@ describe("bank movements page", () => {
   it("keeps earlier movement rows available while synchronization is degraded", async () => {
     mocks.queryBankMovements.mockResolvedValue(
       result({
+        rows: [reconciledIncome],
         synchronization: synchronization({
           latestRun: syncRun("FAILED", {
             failureCode: "PROVIDER_UNAVAILABLE",
@@ -421,7 +420,7 @@ describe("bank movements page", () => {
     expect(
       screen.getByText("The latest synchronization did not import a page."),
     ).toBeVisible();
-    expect(screen.getByRole("row", { name: /Expense/u })).toBeVisible();
+    expect(screen.getByRole("row", { name: /Income/u })).toBeVisible();
   });
 
   it("paginates while preserving validated active filters", async () => {
@@ -431,18 +430,23 @@ describe("bank movements page", () => {
 
     render(
       await BankMovementsPage(
-        pageProps("es", { direction: "income", q: "synthetic", page: "2" }),
+        pageProps("es", { direction: "expense", q: "synthetic", page: "2" }),
       ),
     );
 
     expect(screen.getByRole("link", { name: "Previous page" })).toHaveAttribute(
       "href",
-      "?direction=income&q=synthetic&page=1",
+      "?q=synthetic&page=1",
     );
     expect(screen.getByRole("link", { name: "Next page" })).toHaveAttribute(
       "href",
-      "?direction=income&q=synthetic&page=3",
+      "?q=synthetic&page=3",
     );
+    expect(mocks.queryBankMovements).toHaveBeenCalledWith({
+      ...defaultFilters,
+      q: "synthetic",
+      page: 2,
+    });
     expect(screen.getByText("Page 2 of 3")).toBeVisible();
   });
 });
@@ -457,7 +461,7 @@ describe("bank movement controls and presentation", () => {
     );
   });
 
-  it("resets pagination when a filter changes or all filters clear", async () => {
+  it("hides direction filtering and clears existing filters", async () => {
     render(
       <MovementFilters
         filters={{ ...defaultFilters, direction: "income", q: "synthetic", page: 4 }}
@@ -466,11 +470,7 @@ describe("bank movement controls and presentation", () => {
 
     expect(screen.queryByLabelText("Account")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Currency")).not.toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText("Direction"), "expense");
-    expect(mocks.replace).toHaveBeenLastCalledWith(
-      "/bank-movements?direction=expense&q=synthetic",
-      { scroll: false },
-    );
+    expect(screen.queryByLabelText("Direction")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(mocks.replace).toHaveBeenLastCalledWith("/bank-movements", {

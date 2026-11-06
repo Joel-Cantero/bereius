@@ -806,18 +806,16 @@
   },
   "BankMovements": {
     "title": "Moviments bancaris",
-    "description": "Cerca moviments importats de Holded i compara els totals exactes dels filtres actuals.",
+    "description": "Cerca ingressos importats de Holded i compara'n els totals segons els filtres actuals.",
     "invalidFilters": "Alguns filtres no són vàlids.",
     "clearFilters": "Esborra els filtres",
     "empty": "Cap moviment bancari coincideix amb aquests filtres.",
     "loading": "Carregant moviments bancaris",
     "emptyValue": "No disponible",
     "filters": {
-      "direction": "Direcció",
       "from": "Des de",
       "to": "Fins a",
-      "search": "Cerca concepte o referència",
-      "all": "Totes les direccions"
+      "search": "Cerca concepte o referència"
     },
     "directions": {
       "income": "Ingrés",
@@ -842,8 +840,7 @@
     },
     "totals": {
       "title": "Totals filtrats",
-      "income": "Ingressos",
-      "expense": "Despeses"
+      "income": "Ingressos"
     },
     "proposals": {
       "title": "Proposta de conciliació",

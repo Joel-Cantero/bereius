@@ -433,7 +433,7 @@ test("allows operator and administrator roles across all locales with noindex", 
   ).toBeVisible();
 });
 
-test("computes full filtered totals beyond the visible page and applies filters", async ({
+test("shows only income when historical expenses exist", async ({
   page,
   context,
   baseURL,
@@ -466,19 +466,19 @@ test("computes full filtered totals beyond the visible page and applies filters"
     name: enMessages.BankMovements.totals.title,
   });
   await expect(totals).toContainText(formatEuros(51));
-  await expect(totals).toContainText(formatEuros(2));
+  await expect(totals).not.toContainText(formatEuros(2));
   await expect(
     page.getByRole("navigation", { name: "Page 1 of 2" }),
   ).toBeVisible();
 
-  await page
-    .getByLabel(enMessages.BankMovements.filters.direction)
-    .selectOption("expense");
-  await expect(page).toHaveURL(/direction=expense/u);
-  await expect(page.locator('tbody tr[data-direction="expense"]')).toHaveCount(1);
-  await expect(page.getByText("Needle expense movement", { exact: true })).toBeVisible();
-  await expect(totals).toContainText(formatEuros(2));
-  await expect(totals).not.toContainText(formatEuros(51));
+  await expect(page.getByRole("combobox")).toHaveCount(0);
+  await page.goto(
+    `/bank-movements?account=${account.holdedAccountId}&direction=expense`,
+  );
+  await expect(page.locator('tbody tr[data-direction="income"]')).toHaveCount(50);
+  await expect(page.locator('tbody tr[data-direction="expense"]')).toHaveCount(0);
+  await expect(page.getByText("Needle expense movement", { exact: true })).toHaveCount(0);
+  await expect(totals).toContainText(formatEuros(51));
 });
 
 test("requests a manual refresh by keyboard and exposes durable queued progress", async ({
@@ -496,7 +496,6 @@ test("requests a manual refresh by keyboard and exposes durable queued progress"
     configuredById: actor.userId,
     active: true,
   });
-
   await page.goto(`/bank-movements?account=${account.holdedAccountId}`);
   const refresh = page.getByRole("button", {
     name: enMessages.BankMovements.synchronization.refresh,

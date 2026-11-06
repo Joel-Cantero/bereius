@@ -806,18 +806,16 @@
   },
   "BankMovements": {
     "title": "Movimientos bancarios",
-    "description": "Busca movimientos importados de Holded y compara los totales exactos de los filtros actuales.",
+    "description": "Busca ingresos importados de Holded y compara sus totales según los filtros actuales.",
     "invalidFilters": "Algunos filtros no son válidos.",
     "clearFilters": "Borrar filtros",
     "empty": "Ningún movimiento bancario coincide con estos filtros.",
     "loading": "Cargando movimientos bancarios",
     "emptyValue": "No disponible",
     "filters": {
-      "direction": "Dirección",
       "from": "Desde",
       "to": "Hasta",
-      "search": "Buscar concepto o referencia",
-      "all": "Todas las direcciones"
+      "search": "Buscar concepto o referencia"
     },
     "directions": {
       "income": "Ingreso",
@@ -842,8 +840,7 @@
     },
     "totals": {
       "title": "Totales filtrados",
-      "income": "Ingresos",
-      "expense": "Gastos"
+      "income": "Ingresos"
     },
     "proposals": {
       "title": "Propuesta de conciliación",

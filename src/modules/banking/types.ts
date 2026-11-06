@@ -96,7 +96,6 @@ export interface BankMovementRow {
 export interface BankMovementCurrencyTotals {
   currency: string;
   incomeMinor: string;
-  expenseMinor: string;
 }
 
 export type BankIntegrationState =

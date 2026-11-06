@@ -806,18 +806,16 @@
   },
   "BankMovements": {
     "title": "Bank movements",
-    "description": "Search imported Holded movements and compare exact totals for the current filters.",
+    "description": "Search imported Holded income and compare totals for the current filters.",
     "invalidFilters": "Some filters are invalid.",
     "clearFilters": "Clear filters",
     "empty": "No bank movements match these filters.",
     "loading": "Loading bank movements",
     "emptyValue": "Not available",
     "filters": {
-      "direction": "Direction",
       "from": "From",
       "to": "To",
-      "search": "Search concept or reference",
-      "all": "All directions"
+      "search": "Search concept or reference"
     },
     "directions": {
       "income": "Income",
@@ -842,8 +840,7 @@
     },
     "totals": {
       "title": "Filtered totals",
-      "income": "Income",
-      "expense": "Expense"
+      "income": "Income"
     },
     "proposals": {
       "title": "Reconciliation proposal",
