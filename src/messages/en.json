@@ -806,12 +806,8 @@
       "direction": "Direction",
       "from": "From",
       "to": "To",
-      "account": "Account",
-      "currency": "Currency",
       "search": "Search concept or reference",
-      "all": "All directions",
-      "allAccounts": "All accounts",
-      "allCurrencies": "All currencies"
+      "all": "All directions"
     },
     "directions": {
       "income": "Income",

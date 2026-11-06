@@ -27,21 +27,19 @@ GET /[locale]/bank-movements
   ?direction=all|income|expense
   &from=YYYY-MM-DD
   &to=YYYY-MM-DD
-  &account=<24-hex-provider-account-id>
-  &currency=<ISO-4217>
   &q=<text>
   &page=<positive-integer>
 ```
 
-All parameters are optional and server-validated.
+All parameters are optional and server-validated. The UI does not expose account or currency
+selectors: synchronization uses the one configured EUR account. Previously generated URLs may
+continue to submit those filter parameters through the server schema.
 
 | Parameter | Default | Validation/behavior |
 |---|---|---|
 | `direction` | `all` | Exact enum; maps to stored direction when not `all`. |
 | `from` | absent | Valid inclusive bank calendar date. |
 | `to` | absent | Valid inclusive bank calendar date; must not precede `from`. |
-| `account` | all retained accounts | Valid 24-hex account represented by an authorized projection. |
-| `currency` | all | Uppercase code present in retained rows. Current provider ingestion accepts only `EUR`; grouping remains future-compatible. |
 | `q` | empty | Trim/collapse whitespace, max 100 characters, case-insensitive narrative contains. |
 | `page` | `1` | Positive integer; 50 rows per page. |
 
@@ -211,7 +209,7 @@ booking action succeeds, and `/api/health` remains HTTP 200 while this page show
 ## UI Contract Tests
 
 - Operator/admin access, signed-out localized callback, and admin-only account configuration.
-- All filter combinations, inclusive dates, reset behavior, deterministic order, and 50-row paging.
+- Direction/date/text filtering, inclusive dates, reset behavior, deterministic order, and 50-row paging.
 - Totals over the full filtered set, separated by currency and direction.
 - Empty/loading/queued/running/retrying/success/partial/error rendering with retained stale rows.
 - Manual request de-duplication, cooldown, retry, accessible announcements, keyboard operation, and

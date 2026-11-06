@@ -11,8 +11,6 @@ import type { BankMovementFilters } from "@/modules/banking/types";
 
 export interface MovementFiltersProps {
   filters: BankMovementFilters;
-  accounts: Array<{ id: string; name: string }>;
-  currencies: string[];
 }
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -21,8 +19,6 @@ const SELECT_CLASS =
 
 export function MovementFilters({
   filters,
-  accounts,
-  currencies,
 }: MovementFiltersProps) {
   const t = useTranslations("BankMovements");
   const pathname = usePathname();
@@ -60,7 +56,7 @@ export function MovementFilters({
       aria-busy={pending}
       onSubmit={(event) => event.preventDefault()}
     >
-      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
+      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <Field>
           <FieldLabel htmlFor="movement-direction">
             {t("filters.direction")}
@@ -98,46 +94,6 @@ export function MovementFilters({
             defaultValue={filters.to ?? ""}
             onChange={(event) => apply({ to: event.target.value })}
           />
-        </Field>
-
-        <Field>
-          <FieldLabel htmlFor="movement-account">
-            {t("filters.account")}
-          </FieldLabel>
-          <select
-            id="movement-account"
-            name="account"
-            defaultValue={filters.account ?? ""}
-            onChange={(event) => apply({ account: event.target.value })}
-            className={SELECT_CLASS}
-          >
-            <option value="">{t("filters.allAccounts")}</option>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.name}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <Field>
-          <FieldLabel htmlFor="movement-currency">
-            {t("filters.currency")}
-          </FieldLabel>
-          <select
-            id="movement-currency"
-            name="currency"
-            defaultValue={filters.currency ?? ""}
-            onChange={(event) => apply({ currency: event.target.value })}
-            className={SELECT_CLASS}
-          >
-            <option value="">{t("filters.allCurrencies")}</option>
-            {currencies.map((currency) => (
-              <option key={currency} value={currency}>
-                {currency}
-              </option>
-            ))}
-          </select>
         </Field>
 
         <Field className="sm:col-span-2 xl:col-span-2">
