@@ -89,7 +89,10 @@ export interface UpdateAdvanceCommand {
 export async function updateAdvance(command: UpdateAdvanceCommand): Promise<void> {
   // Only before payment: a confirmed booking was matched against the old amount.
   const updated = await db.bookingRequest.updateMany({
-    where: { id: command.bookingRequestId, state: "AWAITING_PAYMENT", depositCents: { not: null } },
+    where: {
+      id: command.bookingRequestId, state: "AWAITING_PAYMENT",
+      depositCents: { not: null }, bankPaymentOperation: null,
+    },
     data: { advanceCents: command.advanceCents },
   });
   if (updated.count !== 1) {

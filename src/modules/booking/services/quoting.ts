@@ -75,9 +75,12 @@ export async function requestQuoteResend(bookingRequestId: string, actorUserId: 
     await transaction.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${bookingRequestId} FOR UPDATE`;
     const booking = await transaction.bookingRequest.findUnique({
       where: { id: bookingRequestId },
-      include: { documents: { where: { type: "ESTIMATE" }, include: { delivery: true } } },
+      include: { bankPaymentOperation: { select: { status: true } }, documents: { where: { type: "ESTIMATE" }, include: { delivery: true } } },
     });
     const estimate = booking?.documents[0];
+    if (booking?.bankPaymentOperation && booking.bankPaymentOperation.status !== "COMPLETED") {
+      throw new QuoteResendError("busy");
+    }
     if (!booking || !["AWAITING_PAYMENT", "CONFIRMED", "COMPLETED"].includes(booking.state) ||
       (!estimate && booking.state !== "AWAITING_PAYMENT")) {
       throw new QuoteResendError("wrong_state");

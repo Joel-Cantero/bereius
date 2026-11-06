@@ -98,6 +98,7 @@ export async function getBookingDetail(bookingRequestId: string) {
     where: { id: bookingRequestId },
     include: {
       customer: true,
+      bankPaymentOperation: { select: { bookingRequestId: true, stage: true, status: true } },
       documents: {
         orderBy: { issuedAt: "asc" },
         include: { delivery: { select: { status: true } } },

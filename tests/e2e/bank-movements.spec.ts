@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, randomBytes, randomUUID } from "node:crypto";
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { Pool } from "pg";
@@ -173,13 +173,14 @@ async function seedBooking(state: "IN_REVIEW" | "AWAITING_PAYMENT") {
   try {
     await pool.query(
       `INSERT INTO "Customer"
-         ("id","taxId","name","email","createdAt","updatedAt")
-       VALUES ($1,$2,$3,$4,NOW(),NOW())`,
+         ("id","taxId","name","email","holdedContactId","createdAt","updatedAt")
+       VALUES ($1,$2,$3,$4,$5,NOW(),NOW())`,
       [
         fixture.customerId,
         `E2E${suffix}`.toUpperCase(),
         `E2E Banking Group ${suffix}`,
         `banking-${suffix}@example.test`,
+        providerId(),
       ],
     );
     await pool.query(
@@ -300,6 +301,10 @@ async function cleanupBankingFixtures() {
   const trackedCustomers = [...customerIds];
   const pool = getPool();
   try {
+    await pool.query(`DELETE FROM "IntegrationJob" WHERE "idempotencyKey" IN (
+      SELECT 'banking.payment:' || "id" FROM "BankPaymentOperation" WHERE "bookingRequestId" = ANY($1::text[])
+    )`, [trackedBookings]);
+    await pool.query(`DELETE FROM "BankPaymentOperation" WHERE "bookingRequestId" = ANY($1::text[])`, [trackedBookings]);
     await pool.query(
       `DELETE FROM "IntegrationJob"
        WHERE "idempotencyKey" LIKE ANY($1::text[])`,
@@ -517,7 +522,7 @@ test("requests a manual refresh by keyboard and exposes durable queued progress"
   ).toBeVisible();
 });
 
-test("confirms a reconciliation proposal manually by keyboard", async ({
+test("queues a reconciliation proposal manually by keyboard without premature confirmation", async ({
   page,
   context,
   baseURL,
@@ -548,14 +553,88 @@ test("confirms a reconciliation proposal manually by keyboard", async ({
   await page.keyboard.press("Enter");
 
   await expect.poll(() => readReconciliation(proposalId, booking.id)).toEqual({
-    proposalStatus: "CONFIRMED",
-    decidedById: actor.userId,
-    bookingState: "CONFIRMED",
-    paymentCount: 1,
+    proposalStatus: "PENDING",
+    decidedById: null,
+    bookingState: "AWAITING_PAYMENT",
+    paymentCount: 0,
   });
-  await expect(
-    page.getByText(enMessages.BankMovements.proposals.confirmedAnnouncement),
-  ).toBeVisible();
+  await expect(page.getByText(enMessages.BankMovements.payment.stage.replace("{stage}", enMessages.BankMovements.payment.stages.PREPARED))).toBeVisible();
+});
+
+test("selects a booking from a movement and completes linked Holded payment and delegate delivery", async ({ page, context, baseURL, request }) => {
+  test.setTimeout(120_000);
+  const fixtureUrl = process.env.E2E_PROVIDER_HTTP_URL;
+  const secretKey = process.env.BOOKING_SECRET_KEY;
+  test.skip(!fixtureUrl || !secretKey, "Requires the isolated synthetic provider and encryption key");
+  const actor = await seedActor("OPERATOR");
+  await installAuthSessionCookie(context, actor.sessionToken, baseURL ?? "http://127.0.0.1:3100");
+  const account = await seedTreasuryAccount({ configuredById: actor.userId });
+  const movement = await seedMovement(account, { amountMinor: BigInt(30_100), narrative: "Income without contract reference" });
+  const booking = await seedBooking("AWAITING_PAYMENT");
+  await seedProposal(movement.id, booking, "E-1");
+  const pool = getPool();
+  const original = (await pool.query<Record<string, unknown>>('SELECT * FROM "IntegrationSettings" WHERE "provider" = $1', ["HOLDED"])).rows[0];
+  try {
+    const identities = await pool.query<{ contactId: string; estimateId: string }>(
+      `SELECT c."holdedContactId" AS "contactId",d."holdedId" AS "estimateId"
+       FROM "Customer" c JOIN "BookingRequest" b ON b."customerId"=c."id"
+       JOIN "HoldedDocument" d ON d."bookingRequestId"=b."id" WHERE b."id"=$1`, [booking.id],
+    );
+    const identity = identities.rows[0];
+    const configured = await request.post(`${fixtureUrl}/control/holded/payment`, { data: {
+      ...identity, accountId: account.holdedAccountId, movementId: movement.holdedMovementId,
+      amount: "301.00", bankDate: "2025-02-01",
+    } });
+    expect(configured.ok()).toBe(true);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", Buffer.from(secretKey!, "base64"), iv);
+    const ciphertext = Buffer.concat([cipher.update(`synthetic-${randomUUID()}`, "utf8"), cipher.final()]);
+    await pool.query(`DELETE FROM "IntegrationSettings" WHERE "provider" = 'HOLDED'`);
+    await pool.query(`INSERT INTO "IntegrationSettings"
+      ("provider","config","secretCiphertext","secretIv","secretAuthTag","createdAt","updatedAt")
+      VALUES ('HOLDED',$1,$2,$3,$4,NOW(),NOW())`, [
+      JSON.stringify({ advanceServiceId: "1".repeat(24), depositServiceId: "2".repeat(24),
+        serviceIdsBySku: {}, negotiatedTaxIds: [], language: "ca" }), ciphertext, iv, cipher.getAuthTag(),
+    ]);
+    for (const target of localeTargets) {
+      await page.goto(`${target.path}?account=${account.holdedAccountId}`);
+      const trigger = page.getByRole("button", { name: "Income without contract reference" });
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("heading", { name: target.messages.payment.title })).toBeVisible();
+      await expect(dialog.getByRole("link", { name: /E2E Banking Group/u })).toBeVisible();
+      if (target.locale !== "ca") {
+        await page.keyboard.press("Escape");
+        await expect(trigger).toBeFocused();
+      } else {
+        await dialog.getByRole("button", { name: target.messages.payment.reconcile }).click();
+      }
+    }
+    await expect.poll(() => readBookingState(booking.id), { timeout: 90_000 }).toBe("CONFIRMED");
+    const captured = await request.get(`${fixtureUrl}/control/requests`);
+    const { requests } = await captured.json() as { requests: { logicalUrl: string; method: string; body: string }[] };
+    const writes = requests.filter((item) => item.method !== "GET" && item.logicalUrl.includes("api.holded.com"));
+    expect(writes.filter((item) => item.logicalUrl.endsWith("/documents/convert"))).toHaveLength(1);
+    expect(JSON.parse(writes.find((item) => item.method === "PUT")!.body)).toMatchObject({
+      items: [{ price: 101, taxes: ["s_iva_10"] }, { price: 200, taxes: ["s_iva_nosujeto"] }],
+    });
+    expect(JSON.parse(writes.find((item) => item.logicalUrl.endsWith("/payments"))!.body)).toMatchObject({ amount: "301.00", treasury_id: account.holdedAccountId });
+    expect(JSON.parse(writes.find((item) => item.logicalUrl.endsWith("/reconcile"))!.body)).toEqual({
+      documents: [{ document_id: "3".repeat(24), document_type: "collection" }],
+    });
+    expect(JSON.parse(writes.find((item) => item.logicalUrl.endsWith("/send"))!.body)).toMatchObject({ cc: ["delegate@example.test"] });
+  } finally {
+    await pool.query(`DELETE FROM "IntegrationSettings" WHERE "provider" = 'HOLDED'`);
+    if (original) await pool.query(`INSERT INTO "IntegrationSettings"
+      ("provider","config","secretCiphertext","secretIv","secretAuthTag","verifiedAt","updatedById","createdAt","updatedAt")
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [
+      original.provider, original.config, original.secretCiphertext, original.secretIv, original.secretAuthTag,
+      original.verifiedAt, original.updatedById, original.createdAt, original.updatedAt,
+    ]);
+    await request.post(`${fixtureUrl}/control/reset`);
+    await pool.end();
+  }
 });
 
 test("keeps movements and unrelated booking decisions available during Holded outage", async ({
@@ -660,5 +739,12 @@ test(
       tableScrolls: true,
       outOfBounds: 0,
     });
+    await page.getByRole("button", { name: /A deliberately long synthetic movement concept/u }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: enMessages.BankMovements.payment.title })).toBeVisible();
+    const box = await dialog.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(320);
   },
 );

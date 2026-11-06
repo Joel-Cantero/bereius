@@ -3,8 +3,10 @@
 ## Ownership Boundary
 
 The banking domain owns movement eligibility, proposals, and proposal decisions. The booking domain
-owns payment records, legal booking state transitions, audit events, and confirmation mail. Holded is
-read-only and never receives a reconciliation write from this feature.
+owns payment records, legal booking state transitions, audit events, and confirmation mail.
+The [bank booking reconciliation amendment](../../20261106-bank-booking-reconciliation/spec.md)
+supersedes immediate local confirmation: human selections now enqueue linked Holded invoice,
+payment, collection reconciliation and invoice-delivery writes. Synchronization remains read-only.
 
 ## Proposal Generation
 
@@ -73,7 +75,7 @@ amount, currency, reference, movement ID, booking ID, state, or expected total.
 ### Result
 
 ```text
-{ status: "confirmed", bookingRequestId: string }
+{ status: "processing", bookingRequestId: string }
 { status: "error", reason:
     "unauthenticated" |
     "forbidden" |
@@ -90,13 +92,18 @@ amount, currency, reference, movement ID, booking ID, state, or expected total.
 Unknown/unauthorized proposal IDs return the same safe not-found result where disclosure would
 otherwise enable enumeration.
 
-### Atomic Postconditions
+### Atomic selection and deferred completion
 
-One database transaction MUST:
+The selection transaction reloads and locks the booking/movement, checks eligibility, uniquely
+creates BankPaymentOperation with frozen receipt/source data and enqueues the same operation.
+It creates no Payment, confirmation audit or confirmation mail.
 
-1. reload proposal, movement, account, booking totals/state, and estimate number;
-2. re-evaluate every proposal condition;
-3. condition the decision on proposal status still being `PENDING`;
+After linked invoicing, receipt registration, verified bank reconciliation and accepted invoice
+submission, one final database transaction MUST:
+
+1. lock the booking and reload its operation and source/receipt snapshot;
+2. require the verified SENT stage and accepted local invoice-delivery evidence;
+3. guard against a completed operation or conflicting booking state;
 4. create exactly one existing `Payment` with:
    - `bookingRequestId` from the proposal;
    - positive exact `amountCents` after proving it fits the booking's existing integer range;
@@ -109,8 +116,13 @@ One database transaction MUST:
 7. call the existing booking transition with the same transaction, expected state
    `AWAITING_PAYMENT`, destination `CONFIRMED`, and trusted actor, creating the standard audit event.
 
-After commit, queue the existing booking-confirmation email. A transaction failure creates neither a
-payment nor a decision nor a booking state/audit change.
+Enqueue the existing booking-confirmation email within that same transaction. A failure creates
+neither a payment nor a decision nor a booking state/audit change. Ambiguous external writes are
+parked, not replayed. The [recovery runbook](../../../docs/bank-payment-reconciliation.md) applies.
+
+Opening a movement also offers manually selectable bookings within an inclusive 5% of their expected
+total; no narrative reference is required. Strict scan-generated proposals remain exact-reference
+and exact-amount matches. All bank-backed entry points share the same deferred workflow.
 
 ## Dismiss Action
 
@@ -157,8 +169,10 @@ also deferred.
 - Reference-only and amount-only matches produce zero proposals.
 - Partial, overpayment, combined transfers, missing estimate number, wrong currency, and zero amount
   produce zero proposals.
-- Confirmation creates one linked payment, one confirmed proposal, one booking transition, and one
-  audit event atomically; replay/stale state creates no duplicate.
+- Selection queues one claimed operation without prematurely confirming. Completion after accepted
+  delivery creates one linked payment, confirmed proposal, transition and audit atomically.
+- Actual-received invoices always contain the EUR 200 non-subject deposit and remaining advance.
+- Ambiguous mutations and interrupted workers do not replay writes; recipients remain frozen.
 - Dismissal is durable across rescans and records the operator.
 - Movement correction updates one row and invalidates an unconfirmed ineligible proposal.
 - Correction after confirmation retains the decision and surfaces an incident without automatic

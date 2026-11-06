@@ -40,6 +40,11 @@ function stubClient(options: StubOptions = {}) {
   };
 
   const client: HoldedClient = {
+    convertEstimateToInvoice: vi.fn(async () => { throw new Error("Unexpected invoice conversion"); }),
+    configureReserveInvoice: vi.fn(async () => { throw new Error("Unexpected invoice configuration"); }),
+    getInvoiceEvidence: vi.fn(async () => { throw new Error("Unexpected invoice evidence read"); }),
+    registerInvoicePayment: vi.fn(async () => { throw new Error("Unexpected invoice payment"); }),
+    reconcileBankPayment: vi.fn(async () => { throw new Error("Unexpected bank reconciliation"); }),
     listFiscalContacts: vi.fn(async () => []),
     ping: vi.fn(async () => {
       track("ping", () => undefined);

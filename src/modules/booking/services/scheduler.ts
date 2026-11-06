@@ -7,6 +7,7 @@ import {
   processBankSync,
 } from "@/modules/banking/services/synchronization";
 import { runBankRetention } from "@/modules/banking/services/retention";
+import { BANK_PAYMENT_JOB_KIND, runBankPaymentJob, recoverInterruptedBankPayments } from "@/modules/banking/services/payment-operation";
 import { runAutomaticCustomerSync, retainCustomerHistory } from "@/modules/customers/services/management";
 import { expireUnpaidBookings } from "@/modules/booking/services/expiry";
 import { runIntake } from "@/modules/booking/services/intake";
@@ -33,6 +34,7 @@ export const SCHEDULES = {
 } as const;
 
 const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
+  [BANK_PAYMENT_JOB_KIND]: runBankPaymentJob,
   [QUOTE_JOB_KIND]: runQuoteJob,
   [RESERVE_INVOICE_JOB_KIND]: runReserveInvoiceJob,
   [BOOKING_MAIL_JOB_KIND]: runBookingMailJob,
@@ -53,7 +55,10 @@ async function runBankingSweep() {
 const TASKS: Readonly<Record<TaskName, () => Promise<unknown>>> = {
   banking: runBankingSweep,
   intake: () => runIntake(),
-  outbox: () => drainOutbox(JOB_HANDLERS),
+  outbox: async () => {
+    await recoverInterruptedBankPayments();
+    return drainOutbox(JOB_HANDLERS);
+  },
   expiry: () => expireUnpaidBookings(),
   retention: async () => { await runBankRetention(); await retainCustomerHistory(); },
   customers: () => runAutomaticCustomerSync(),

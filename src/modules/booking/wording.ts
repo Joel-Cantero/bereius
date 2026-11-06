@@ -120,3 +120,8 @@ export const ADVANCE_LINE = {
   name: "Reserva",
   description: "30% de l'import total del pressupost.",
 } as const;
+
+export const RECEIVED_ADVANCE_LINE = {
+  name: "Bestreta",
+  description: "Import rebut a compte del pressupost.",
+} as const;

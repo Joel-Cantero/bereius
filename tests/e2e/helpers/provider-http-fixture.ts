@@ -12,6 +12,7 @@ type ProviderTarget =
   | "mailjet.send"
   | "holded.accounts"
   | "holded.movements"
+  | "holded.payment"
   | "wordpress.customers"
   | "wordpress.delegations"
   | "wordpress.action";
@@ -56,6 +57,7 @@ const logicalUrlByTarget: Record<ProviderTarget, string> = {
   "mailjet.send": "https://api.mailjet.com/v3.1/send",
   "holded.accounts": "https://api.holded.com/api/v2/treasury/accounts",
   "holded.movements": "https://api.holded.com/api/v2/treasury/accounts",
+  "holded.payment": "https://api.holded.com/api/v2",
   "wordpress.customers": "https://wordpress.example.test/wp-json/berea/v1/admin/customers",
   "wordpress.delegations": "https://wordpress.example.test/wp-json/berea/v1/admin/delegations",
   "wordpress.action": "https://wordpress.example.test/wp-json/berea/v1/admin/delegations/action",
@@ -67,6 +69,7 @@ const providerTargets = new Set<ProviderTarget>([
   "mailjet.send",
   "holded.accounts",
   "holded.movements",
+  "holded.payment",
   "wordpress.customers", "wordpress.delegations", "wordpress.action",
 ]);
 const requests: CapturedRequest[] = [];
@@ -98,7 +101,7 @@ function resolveProviderRequest(url: URL): {
       ? "holded.accounts"
       : movementsPath.test(logicalPath)
         ? "holded.movements"
-        : null;
+        : logicalPath.startsWith("/api/v2/") ? "holded.payment" : null;
   if (!target) return null;
   return {
     target,
@@ -125,6 +128,56 @@ async function readBody(request: IncomingMessage) {
 }
 
 const wordpressDelegates: Record<string, unknown>[] = [];
+
+interface PaymentFixture {
+  accountId: string; movementId: string; estimateId: string; contactId: string;
+  amount: string; bankDate: string; invoiceId: string; invoice: Record<string, unknown>;
+  paid: boolean; approved: boolean; reconciled: boolean;
+}
+let payment: PaymentFixture | null = null;
+const fixtureDepositId = "2".repeat(24);
+const fixtureCollectionId = "3".repeat(24);
+
+function paymentResponse(url: string, method: string, body: string): ProviderBehavior | null {
+  if (!payment) return null;
+  const path = new URL(url).pathname.replace("/api/v2", "");
+  const reply = (value: unknown, status = 200) => ({ status, body: JSON.stringify(value) });
+  if (path === `/estimates/${payment.estimateId}`) return reply({
+    id: payment.estimateId, contact_id: payment.contactId, draft: false, total: "1000",
+    document_number: "E-1", date: "2025-01-31",
+  });
+  if (path === "/numbering-series/invoice") return reply({ items: [{ id: "4".repeat(24), name: "F" }] });
+  if (path.startsWith("/services/")) return reply({
+    id: path.split("/").pop(), price: path.endsWith(fixtureDepositId) ? 200 : 0, sales_channel_id: "5".repeat(24),
+  });
+  if (path === "/documents/convert") return reply({ id: payment.invoiceId }, 201);
+  if (path === `/invoices/${payment.invoiceId}` && method === "PUT") {
+    payment.invoice = JSON.parse(body) as Record<string, unknown>;
+    return reply({});
+  }
+  if (path === `/invoices/${payment.invoiceId}/approve`) { payment.approved = true; return reply({}); }
+  if (path === `/invoices/${payment.invoiceId}/payments`) { payment.paid = true; return { status: 201 }; }
+  if (path.endsWith(`/${payment.movementId}/reconcile`)) { payment.reconciled = true; return reply({}); }
+  if (path.endsWith("/bank-movements")) return reply({
+    items: [{ id: payment.movementId, banking_account_id: payment.accountId, booking_date: `${payment.bankDate}T00:00:00Z`,
+      value_date: null, amount: payment.amount, currency: "EUR", status: payment.reconciled ? "reconciled" : "pending" }],
+    has_more: false, cursor: null,
+  });
+  if (path === `/invoices/${payment.invoiceId}`) return reply({
+    ...payment.invoice, id: payment.invoiceId, document_number: "F-1",
+    total: payment.amount, lines: payment.invoice.items ?? [], tax_included: true,
+    from: { id: payment.estimateId, doc_type: "estimate" }, draft: !payment.approved,
+    payments_total: payment.paid ? payment.amount : "0", payments_pending: payment.paid ? "0" : payment.amount,
+    payments_detail: payment.paid ? [{ id: fixtureCollectionId, amount: payment.amount,
+      date: payment.bankDate, bank_id: payment.accountId }] : [],
+  });
+  if (path === "/contacts") return reply({
+    items: [{ code: `berea-wp-delegate:${payment.contactId}:200001:1`, is_person: true, email: "delegate@example.test" }],
+    has_more: false, cursor: null,
+  });
+  if (path === `/invoices/${payment.invoiceId}/send`) return reply({});
+  return null;
+}
 
 function defaultResponse(target: ProviderTarget, body: string): ProviderBehavior {
   if (target === "wordpress.customers") {
@@ -206,8 +259,17 @@ async function handleControl(
   if (request.method === "POST" && pathname === "/control/reset") {
     requests.splice(0);
     behaviors.splice(0);
+    payment = null;
     json(response, 200, { status: "reset" });
     return true;
+  }
+  if (request.method === "POST" && pathname === "/control/holded/payment") {
+    const input = JSON.parse(await readBody(request)) as Pick<PaymentFixture, "accountId" | "movementId" | "estimateId" | "contactId" | "amount" | "bankDate">;
+    if (![input.accountId, input.movementId, input.estimateId, input.contactId].every((id) => typeof id === "string" && /^[0-9a-f]{24}$/u.test(id))) {
+      json(response, 400, { status: "invalid" }); return true;
+    }
+    payment = { ...input, invoiceId: "6".repeat(24), invoice: {}, paid: false, approved: false, reconciled: false };
+    json(response, 200, { status: "configured" }); return true;
   }
   if (request.method === "GET" && pathname === "/control/requests") {
     json(response, 200, { requests });
@@ -361,7 +423,8 @@ const server = createServer(async (request, response) => {
     const rule = ruleIndex >= 0 ? behaviors[ruleIndex] : undefined;
     const behavior = rule
       ? rule.behavior
-      : defaultResponse(providerRequest.target, body);
+      : paymentResponse(providerRequest.logicalUrl, request.method ?? "GET", body) ??
+        defaultResponse(providerRequest.target, body);
     if (rule?.once) behaviors.splice(ruleIndex, 1);
     if (behavior.delayMs) {
       await new Promise((resolve) => setTimeout(resolve, behavior.delayMs));

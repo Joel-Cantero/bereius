@@ -186,8 +186,8 @@ part of forward recovery and must remain reusable by later valid submissions.
 ## Booking pipeline
 
 The booking module (`src/modules/booking`) replaces the retired n8n workflow. Requests arrive from
-the public Gravity Forms form, are reviewed on screen, and become a Holded contact, estimate and
-reserve invoice on approval.
+the public Gravity Forms form, are reviewed on screen, and become a Holded contact and estimate
+on approval. A bank-backed payment selection creates the linked reserve invoice.
 
 - **No new service.** A scheduler starts from [`src/instrumentation.ts`](src/instrumentation.ts) in
   every Node instance and runs the hourly Gravity Forms intake, the outbox drain, and the daily
@@ -225,9 +225,17 @@ introduced.
   Account-scoped provider identifiers and exact signed minor units make repeated pages idempotent.
 - **Human reconciliation.** Exact estimate-number and amount matches create proposals only. A person
   must confirm or dismiss every proposal; synchronization never records a payment automatically.
+  Opening an unclaimed EUR income offers awaiting-payment bookings within an inclusive **5%** of
+  their agreed total to confirm, even without a reference. Selection queues durable Holded work:
+  convert the associated estimate to an invoice, replace its lines with a fixed **EUR 200
+  non-VAT-subject deposit** and the **received remainder as advance, including 10% VAT**, approve,
+  register the actual receipt and reconcile the movement against that collection. Holded then sends
+  the invoice to the fiscal customer with active delegates in CC. The booking stays unconfirmed until
+  every step, including accepted invoice submission, succeeds. No automatic replay follows an unknown
+  mutation outcome.
 - **Bounded retention.** Unmatched, unprotected bank movements age out after 90 days once a complete
   exhausted scan has advanced the account's retention floor. Payment-linked movements and pending or
-  confirmed reconciliation evidence remain protected, while old operational runs and incidents are
+  confirmed reconciliation evidence and payment-operation claims remain protected, while old operational runs and incidents are
   pruned separately.
 - **Outage recovery.** Existing movements remain visible when Holded is unavailable. Runs use leases,
   bounded exponential retries and durable progress; booking expiry requires fresh clean bank evidence
@@ -259,6 +267,11 @@ movements. Rolling back to older banking code restores automatic scans and pre-e
 calls, so obtain approval before doing so. Validation evidence and outstanding Holded API budget
 work are tracked in
 [`specs/20261001-holded-api-budget/plan.md`](specs/20261001-holded-api-budget/plan.md).
+
+Bank-backed invoice reconciliation adds a new forward-only migration. Preserve its operation records
+and known Holded IDs through failures; rolling back application code does not undo fiscal writes.
+See the [bank payment recovery runbook](docs/bank-payment-reconciliation.md) and
+[current feature contract](specs/20261106-bank-booking-reconciliation/spec.md).
 
 ## Database, backups & health
 

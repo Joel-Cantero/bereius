@@ -8,6 +8,15 @@
 
 **Input**: Replace the n8n workflow "Crear presupuesto cuando se recibe un formulario de reserva, crear factura y actualizar contrato" with a web application.
 
+## Amendment — Bank-backed reconciliation
+
+The [bank booking reconciliation feature](../20261106-bank-booking-reconciliation/spec.md)
+supersedes immediate bank-backed confirmation and agreed-amount reserve invoices. Selection within
+an inclusive 5% queues Holded work; invoice exactly the received amount as EUR 200 non-subject deposit
+plus the remaining advance with 10% VAT included. Link the invoice to its original estimate, register
+the receipt, reconcile the original movement and submit the invoice to fiscal customer/active
+delegates before confirming locally. Historical invoices/payments are unchanged.
+
 ## Amendment — 2026-09-12
 
 Feature [`20260912-customer-delegates`](../20260912-customer-delegates/spec.md) supersedes the broad

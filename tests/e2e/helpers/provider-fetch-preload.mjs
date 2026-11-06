@@ -40,17 +40,7 @@ syncBuiltinESMExports();
 function holdedFixturePath(logicalUrl) {
   const url = new URL(logicalUrl);
   if (url.origin !== "https://api.holded.com") return undefined;
-  const treasuryAccountsPath = "/api/v2/treasury/accounts";
-  const bankMovementsPath = new RegExp(
-    `^${treasuryAccountsPath}/[0-9a-f]{24}/bank-movements$`,
-    "iu",
-  );
-  if (
-    url.pathname !== treasuryAccountsPath &&
-    !bankMovementsPath.test(url.pathname)
-  ) {
-    return undefined;
-  }
+  if (!url.pathname.startsWith("/api/v2/")) return undefined;
   return `/provider/holded${url.pathname}${url.search}`;
 }
 

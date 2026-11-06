@@ -25,7 +25,9 @@ import type {
   BankSyncIncidentSummary,
   BankSynchronizationSummary,
   BankSyncRunSummary,
+  MovementCandidatesResult,
 } from "@/modules/banking/types";
+import { ReconciliationError } from "@/modules/banking/services/reconciliation-error";
 
 export type {
   BankIntegrationState,
@@ -100,7 +102,8 @@ export async function listBookingPaymentCandidates(
       },
     },
   });
-  if (!booking || booking.state !== "AWAITING_PAYMENT") {
+  const operation = await db.bankPaymentOperation.findUnique({ where: { bookingRequestId }, select: { id: true } });
+  if (!booking || booking.state !== "AWAITING_PAYMENT" || operation) {
     return [];
   }
 
@@ -116,6 +119,7 @@ export async function listBookingPaymentCandidates(
       bookingDate: { gte: paymentStartDate },
       amountMinor: { gte: bounds.minimum, lte: bounds.maximum },
       payment: null,
+      paymentOperation: null,
       proposals: {
         none: {
           bookingRequestId,
@@ -174,6 +178,61 @@ export async function listBookingPaymentCandidates(
       currency: candidate.currency,
       estimateReferenceFound: candidate.estimateReferenceFound,
     }));
+}
+
+export async function listMovementBookingCandidates(
+  movementId: string,
+  page = 1,
+): Promise<Extract<MovementCandidatesResult, { status: "ready" }>> {
+  const movement = await db.bankMovement.findUnique({
+    where: { id: movementId },
+    include: { payment: true, paymentOperation: true },
+  });
+  if (!movement || movement.payment || movement.paymentOperation ||
+      movement.direction !== "INCOME" || movement.currency !== "EUR") {
+    throw new ReconciliationError("movement_ineligible");
+  }
+  const bookings = await db.bookingRequest.findMany({
+    where: {
+      state: "AWAITING_PAYMENT", bankPaymentOperation: null, payments: { none: {} },
+      documents: { some: { type: "ESTIMATE", issuedAt: { lte: new Date(movement.bookingDate.getTime() + 86_399_999) } } },
+      bankReconciliationProposals: {
+        none: { movementId, status: { in: ["DISMISSED", "INVALIDATED"] } },
+      },
+    },
+    select: {
+      id: true, state: true, decidedAt: true, advanceCents: true, depositCents: true,
+      startDate: true, endDate: true, customer: { select: { name: true } },
+      documents: { where: { type: "ESTIMATE" }, take: 1, select: { documentNumber: true, issuedAt: true } },
+    },
+  });
+  const candidates = bookings
+    .filter((booking) => isBookingPaymentCandidate(movement, booking))
+    .map((booking) => {
+      const expected = expectedPaymentMinor(booking);
+      return {
+        bookingRequestId: booking.id, customerName: booking.customer.name,
+        startDate: booking.startDate.toISOString().slice(0, 10),
+        endDate: booking.endDate.toISOString().slice(0, 10),
+        estimateNumber: estimateNumber(booking) ?? "",
+        expectedAmountMinor: expected.toString(),
+        difference: movement.amountMinor >= expected ? movement.amountMinor - expected : expected - movement.amountMinor,
+        reference: hasEstimateReference(movement.narrative, estimateNumber(booking)),
+      };
+    })
+    .sort((a, b) => Number(b.reference) - Number(a.reference) ||
+      (a.difference === b.difference ? 0 : a.difference < b.difference ? -1 : 1) ||
+      a.startDate.localeCompare(b.startDate) || a.bookingRequestId.localeCompare(b.bookingRequestId));
+  return {
+    status: "ready", total: candidates.length,
+    candidates: candidates.slice((page - 1) * BANK_PAYMENT_CANDIDATE_LIMIT, page * BANK_PAYMENT_CANDIDATE_LIMIT)
+      .map((candidate) => ({
+        bookingRequestId: candidate.bookingRequestId, customerName: candidate.customerName,
+        startDate: candidate.startDate, endDate: candidate.endDate,
+        estimateNumber: candidate.estimateNumber, expectedAmountMinor: candidate.expectedAmountMinor,
+        differenceMinor: candidate.difference.toString(),
+      })),
+  };
 }
 
 export class BankMovementQueryError extends Error {
@@ -359,6 +418,7 @@ export async function queryBankMovements(
         currency: true,
         direction: true,
         payment: { select: { id: true } },
+        paymentOperation: { select: { bookingRequestId: true, stage: true, status: true } },
         account: { select: { holdedAccountId: true, displayName: true } },
         proposals: {
           orderBy: { createdAt: "asc" },
@@ -418,6 +478,7 @@ export async function queryBankMovements(
       currency: row.currency,
       status: row.payment ? "reconciled" : "pending",
       direction: row.direction === "INCOME" ? "income" : "expense",
+      operation: row.paymentOperation,
       proposals: row.proposals.map((proposal) => ({
         id: proposal.id,
         status: proposalStatuses[proposal.status],

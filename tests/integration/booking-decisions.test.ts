@@ -19,10 +19,10 @@ import {
   confirmBookingPaymentCandidate,
   confirmReconciliationProposal,
 } from "@/modules/banking/services/reconciliation";
+import { BANK_PAYMENT_JOB_KIND } from "@/modules/banking/services/payment-operation";
 import { BOOKING_MAIL_JOB_KIND } from "@/modules/booking/services/mail";
 import { QUOTE_JOB_KIND } from "@/modules/booking/services/quoting";
 import {
-  RESERVE_INVOICE_JOB_KIND,
   reserveInvoiceJobKey,
 } from "@/modules/booking/services/reserve-invoice";
 import { createBankingFixtureScope } from "../helpers/banking";
@@ -49,6 +49,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
         taxId: `D${suffix}`.slice(0, 20),
         name: "Fixture group",
         email: `group-${suffix}@example.test`,
+        holdedContactId: "c".repeat(24),
       },
     });
     customerIds.push(customer.id);
@@ -92,7 +93,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
       data: {
         bookingRequestId: request.id,
         type: "ESTIMATE",
-        holdedId: `${scope.scopeId}-estimate`,
+        holdedId: "b".repeat(24),
         documentNumber: "EST-63200",
         totalCents: 63_200,
         issuedAt: request.decidedAt!,
@@ -105,6 +106,12 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
   }
 
   afterEach(async () => {
+    const operations = await db.bankPaymentOperation.findMany({
+      where: { bookingRequestId: { in: bookingIds } }, select: { id: true },
+    });
+    await db.integrationJob.deleteMany({ where: {
+      idempotencyKey: { in: operations.map(({ id }) => `${BANK_PAYMENT_JOB_KIND}:${id}`) },
+    } });
     await Promise.all(
       [...bankingScopes].map(async (scope) => {
         await scope.cleanup();
@@ -383,7 +390,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     ).resolves.toBe(0);
   });
 
-  it("maps one movement into one payment, decision, transition, and mail", async () => {
+  it("queues one movement operation without confirming or issuing legacy mail", async () => {
     const actor = await operator();
     const request = await booking("AWAITING_PAYMENT");
     const { movement, proposal } = await pendingProposal(request);
@@ -397,91 +404,59 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
       }),
     ).resolves.toEqual({ bookingRequestId: request.id });
 
-    await expect(
-      db.payment.findMany({ where: { bankMovementId: movement.id } }),
-    ).resolves.toMatchObject([
-      {
-        bookingRequestId: request.id,
-        amountCents: 63_200,
-        receivedAt: new Date("2026-09-12T00:00:00.000Z"),
-        reference: movement.narrative,
-        recordedById: actor.id,
-      },
-    ]);
+    await expect(db.payment.count({ where: { bankMovementId: movement.id } })).resolves.toBe(0);
     await expect(
       db.bankReconciliationProposal.findUniqueOrThrow({
         where: { id: proposal.id },
       }),
     ).resolves.toMatchObject({
-      status: "CONFIRMED",
-      decidedById: actor.id,
-      decidedAt,
+      status: "PENDING",
+      decidedById: null,
+      decidedAt: null,
     });
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
-    ).resolves.toMatchObject({ state: "CONFIRMED" });
+    ).resolves.toMatchObject({ state: "AWAITING_PAYMENT" });
     await expect(
       db.bookingAuditEvent.findMany({
         where: { bookingRequestId: request.id },
       }),
-    ).resolves.toMatchObject([
-      {
-        actorUserId: actor.id,
-        fromState: "AWAITING_PAYMENT",
-        toState: "CONFIRMED",
-      },
-    ]);
+    ).resolves.toEqual([]);
     await expect(
       db.integrationJob.count({
         where: {
           idempotencyKey: `${BOOKING_MAIL_JOB_KIND}:confirmed:${request.id}`,
         },
       }),
-    ).resolves.toBe(1);
-    const payment = await db.payment.findUniqueOrThrow({
-      where: { bankMovementId: movement.id },
-    });
-    await expect(
-      db.documentIssuance.findUniqueOrThrow({
-        where: {
-          bookingRequestId_type: {
-            bookingRequestId: request.id,
-            type: "RESERVE_INVOICE",
-          },
-        },
-      }),
-    ).resolves.toMatchObject({
-      status: "PREPARED",
-      holdedDocumentId: null,
-    });
-    await expect(
-      db.integrationJob.findUniqueOrThrow({
-        where: { idempotencyKey: reserveInvoiceJobKey(request.id) },
-      }),
-    ).resolves.toMatchObject({
-      kind: RESERVE_INVOICE_JOB_KIND,
-      payload: { bookingRequestId: request.id, paymentId: payment.id },
-    });
+    ).resolves.toBe(0);
+    const operation = await db.bankPaymentOperation.findUniqueOrThrow({ where: { movementId: movement.id } });
+    await expect(db.integrationJob.findUniqueOrThrow({
+      where: { idempotencyKey: `${BANK_PAYMENT_JOB_KIND}:${operation.id}` },
+    })).resolves.toMatchObject({ kind: BANK_PAYMENT_JOB_KIND, payload: { operationId: operation.id } });
 
     await expect(
       confirmReconciliationProposal({
         proposalId: proposal.id,
         actorUserId: actor.id,
       }),
-    ).rejects.toMatchObject({ code: "proposal_changed" });
+    ).rejects.toMatchObject({ code: "state_changed" });
     await expect(
       db.payment.count({ where: { bankMovementId: movement.id } }),
-    ).resolves.toBe(1);
+    ).resolves.toBe(0);
     await expect(
       db.bookingAuditEvent.count({ where: { bookingRequestId: request.id } }),
-    ).resolves.toBe(1);
+    ).resolves.toBe(0);
   });
 
-  it("confirms an explicitly selected bank income within 5% and stores its real amount", async () => {
+  it("queues an explicitly selected bank income within 5% with its real amount", async () => {
     const actor = await operator();
     const request = await booking("AWAITING_PAYMENT");
     const scope = createBankingFixtureScope("booking-decision-candidate");
     bankingScopes.add(scope);
+    await db.holdedDocument.create({ data: {
+      bookingRequestId: request.id, type: "ESTIMATE", holdedId: "b".repeat(24),
+      issuedAt: request.decidedAt!, documentNumber: "E-1",
+    } });
     const accountData = scope.treasuryAccount({ active: false });
     await db.holdedTreasuryAccount.create({ data: accountData });
     const movement = await db.bankMovement.create({
@@ -502,13 +477,13 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     ).resolves.toEqual({ bookingRequestId: request.id });
 
     await expect(
-      db.payment.findUniqueOrThrow({ where: { bankMovementId: movement.id } }),
+      db.bankPaymentOperation.findUniqueOrThrow({ where: { movementId: movement.id } }),
     ).resolves.toMatchObject({
       bookingRequestId: request.id,
       amountCents: 66_000,
       receivedAt: new Date("2026-09-11T00:00:00.000Z"),
       reference: movement.narrative,
-      recordedById: actor.id,
+      actorUserId: actor.id,
     });
     await expect(
       db.bankReconciliationProposal.findUniqueOrThrow({
@@ -519,20 +494,18 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
           },
         },
       }),
-    ).resolves.toMatchObject({ status: "CONFIRMED", decidedById: actor.id });
+    ).resolves.toMatchObject({ status: "PENDING", decidedById: null });
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
-    ).resolves.toMatchObject({ state: "CONFIRMED" });
-    const payment = await db.payment.findUniqueOrThrow({
-      where: { bankMovementId: movement.id },
-    });
+    ).resolves.toMatchObject({ state: "AWAITING_PAYMENT" });
+    const operation = await db.bankPaymentOperation.findUniqueOrThrow({ where: { movementId: movement.id } });
     await expect(
       db.integrationJob.findUniqueOrThrow({
-        where: { idempotencyKey: reserveInvoiceJobKey(request.id) },
+        where: { idempotencyKey: `${BANK_PAYMENT_JOB_KIND}:${operation.id}` },
       }),
     ).resolves.toMatchObject({
-      kind: RESERVE_INVOICE_JOB_KIND,
-      payload: { bookingRequestId: request.id, paymentId: payment.id },
+      kind: BANK_PAYMENT_JOB_KIND,
+      payload: { operationId: operation.id },
     });
   });
 

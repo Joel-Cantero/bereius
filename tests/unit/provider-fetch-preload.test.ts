@@ -35,7 +35,7 @@ describe("provider fetch preload", () => {
     vi.unstubAllGlobals();
   });
 
-  it("forwards only Holded treasury account URLs with path and query intact", async () => {
+  it("isolates all Holded v2 reads and mutations with path and query intact", async () => {
     const movementUrl =
       "https://api.holded.com/api/v2/treasury/accounts/aaaaaaaaaaaaaaaaaaaaaaaa/bank-movements?start_date=2026-09-01&limit=100&cursor=page%202";
 
@@ -58,7 +58,13 @@ describe("provider fetch preload", () => {
     );
 
     nativeFetch.mockClear();
-    const unrelatedUrl = "https://api.holded.com/api/v2/contacts?limit=1";
+    await globalThis.fetch("https://api.holded.com/api/v2/contacts?limit=1");
+    expect(nativeFetch).toHaveBeenCalledWith(
+      new URL("http://127.0.0.1:47891/provider/holded/api/v2/contacts?limit=1"),
+      expect.objectContaining({ method: "GET" }),
+    );
+    nativeFetch.mockClear();
+    const unrelatedUrl = "https://unrelated.example.test/contacts?limit=1";
     await globalThis.fetch(unrelatedUrl);
     expect(nativeFetch).toHaveBeenCalledWith(unrelatedUrl, undefined);
   });
