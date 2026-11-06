@@ -15,12 +15,14 @@ import {
 import {
   changeBookingCustomer,
   ContactSyncError,
+  createBookingFromContract,
   createCustomerContact,
   type CustomerCandidate,
   findBookingCustomerCandidate,
   linkExistingEstimate,
   updateCustomerContact,
 } from "@/modules/booking/services/contact-sync";
+import { BookingPricingError } from "@/modules/booking/services/pricing";
 import { IntegrationSettingsError } from "@/modules/booking/services/settings";
 
 type ContactErrorReason =
@@ -33,6 +35,7 @@ type ContactErrorReason =
   | "rejected"
   | "customer_not_found"
   | "customer_without_email"
+  | "contract_linked"
   | "state_changed"
   | "unknown";
 
@@ -54,6 +57,25 @@ const linkSchema = bookingSchema.extend({
 const customerSchema = bookingSchema.extend({
   taxId: z.string().trim().min(1).max(32),
 });
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/u)
+  .transform((value) => new Date(`${value}T00:00:00.000Z`))
+  .refine((value) => !Number.isNaN(value.getTime()));
+const contractBookingSchema = z
+  .object({
+    holdedId: linkSchema.shape.holdedId,
+    startDate: calendarDate,
+    endDate: calendarDate,
+    headcount: z.coerce.number().int().positive().max(10_000),
+    boardType: z.enum(["SELF_CATERING", "FULL_BOARD"]),
+  })
+  .refine((value) => value.endDate > value.startDate);
+
+export type ContractBookingState =
+  | { status: "idle" }
+  | { status: "created"; bookingRequestId: string }
+  | { status: "error"; reason: ContactErrorReason };
 
 function toErrorState(error: unknown): { status: "error"; reason: ContactErrorReason } {
   if (error instanceof AuthorizationError) {
@@ -66,9 +88,12 @@ function toErrorState(error: unknown): { status: "error"; reason: ContactErrorRe
     if (error.code === "customer_locked") {
       return { status: "error", reason: "state_changed" };
     }
+    if (error.code === "estimate_linked") {
+      return { status: "error", reason: "contract_linked" };
+    }
     return { status: "error", reason: "invalid" };
   }
-  if (error instanceof z.ZodError) {
+  if (error instanceof z.ZodError || error instanceof BookingPricingError) {
     return { status: "error", reason: "invalid" };
   }
   if (error instanceof IntegrationSettingsError) {
@@ -203,6 +228,42 @@ export async function changeCustomerAction(
       revalidatePath("/[locale]/(console)/bookings/[id]", "page");
       revalidatePath("/[locale]/(console)/bookings", "page");
     });
+  } catch (error) {
+    return toErrorState(error);
+  }
+}
+
+export async function createBookingFromContractAction(
+  _previous: ContractBookingState,
+  formData: FormData,
+): Promise<ContractBookingState> {
+  try {
+    const actor = await requireBookingActor();
+    const command = contractBookingSchema.parse({
+      holdedId: formData.get("holdedId"),
+      startDate: formData.get("startDate"),
+      endDate: formData.get("endDate"),
+      headcount: formData.get("headcount"),
+      boardType: formData.get("boardType"),
+    });
+
+    try {
+      const bookingRequestId = await createBookingFromContract({
+        ...command,
+        actorUserId: actor.userId,
+      });
+      revalidatePath("/[locale]/(console)/contracts", "page");
+      revalidatePath("/[locale]/(console)/contracts/[id]", "page");
+      revalidatePath("/[locale]/(console)/bookings", "page");
+      return { status: "created", bookingRequestId };
+    } catch (error) {
+      const state = toErrorState(error);
+      logger.warn(
+        { event: "booking_contract_request_failed", holdedId: command.holdedId, reason: state.reason },
+        "booking request could not be opened from a contract",
+      );
+      return state;
+    }
   } catch (error) {
     return toErrorState(error);
   }

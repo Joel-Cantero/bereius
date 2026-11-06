@@ -792,6 +792,16 @@
       "noTaxId": "El contacte d'aquest pressupost no té NIF a Holded, així que no es pot aparellar amb cap sol·licitud.",
       "noCandidates": "Aquest client no té cap sol·licitud oberta sense pressupost.",
       "stay": "{start} – {end} · {headcount} persones"
+    },
+    "create": {
+      "title": "Crea una sol·licitud a partir del contracte",
+      "hint": "Si aquest contracte no té sol·licitud, crea-la per poder conciliar el pagament i emetre la factura de reserva (dipòsit i paga i senyal). El client és el contacte del pressupost i la sol·licitud queda esperant el pagament.",
+      "startDate": "Entrada",
+      "endDate": "Sortida",
+      "headcount": "Persones",
+      "boardType": "Règim",
+      "chooseBoard": "Tria el règim",
+      "submit": "Crea la sol·licitud"
     }
   },
   "BankMovements": {
@@ -1161,6 +1171,7 @@
       "quote_delivery_unknown": "No es pot reenviar perquè l'enviament anterior està en curs o té un resultat desconegut. Comprova-ho a Holded.",
       "customer_not_found": "No hi ha cap client ni contacte de Holded amb aquest NIF.",
       "customer_without_email": "El contacte de Holded no té correu electrònic. Afegeix-lo a Holded i torna-ho a provar.",
+      "contract_linked": "Aquest contracte ja està vinculat a una sol·licitud. Recarrega la pàgina.",
       "authentication": "El servei ha rebutjat la credencial. Comprova que sigui correcta i que tingui permisos.",
       "connection": "No s'ha pogut contactar amb el servei. Torna-ho a provar més tard.",
       "not_found": "El servei respon però no troba el recurs. Revisa la URL base i l'identificador del formulari.",
