@@ -117,6 +117,7 @@ export async function runBankRetention(
           accountId,
           bookingDate: { lt: effectiveFloor },
           payment: null,
+          paymentOperation: null,
           proposals: {
             none: { status: { in: ["PENDING", "CONFIRMED"] } },
           },

@@ -44,6 +44,7 @@ export async function expireUnpaidBookings(
   const due = await db.bookingRequest.findMany({
     where: {
       state: "AWAITING_PAYMENT",
+      bankPaymentOperation: null,
       paymentDueAt: { lte: expiryAttemptStartedAt },
     },
     select: { id: true },
@@ -88,6 +89,7 @@ export async function expireUnpaidBookings(
         where: {
           id: candidate.id,
           state: "AWAITING_PAYMENT",
+          bankPaymentOperation: null,
           paymentDueAt: { lte: expiryAttemptStartedAt },
           bankReconciliationProposals: {
             none: { status: "PENDING" },

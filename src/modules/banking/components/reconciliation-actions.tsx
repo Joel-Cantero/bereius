@@ -47,6 +47,8 @@ export function ReconciliationActions({
   const resultMessage =
     result?.status === "confirmed"
       ? t("proposals.confirmedAnnouncement")
+      : result?.status === "processing"
+        ? t("proposals.processingAnnouncement")
       : result?.status === "dismissed"
         ? t("proposals.dismissedAnnouncement")
         : result?.status === "error"

@@ -19,6 +19,11 @@ const schedulerMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/modules/banking/services/payment-operation", () => ({
+  BANK_PAYMENT_JOB_KIND: "banking.payment",
+  runBankPaymentJob: vi.fn(),
+  recoverInterruptedBankPayments: vi.fn(async () => {}),
+}));
 vi.mock("@/modules/customers/services/management", () => ({
   runAutomaticCustomerSync: vi.fn(async () => ({ processed: false })),
   retainCustomerHistory: vi.fn(async () => undefined),

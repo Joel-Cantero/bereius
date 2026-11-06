@@ -805,6 +805,47 @@
     }
   },
   "BankMovements": {
+    "payment": {
+      "open": "Ver reservas candidatas",
+      "title": "Conciliar pago de reserva",
+      "description": "Reservas esperando pago con un total para confirmar dentro del ±5% del ingreso. La reserva solo se confirmará tras completar Holded y aceptar el envío.",
+      "close": "Cerrar",
+      "expected": "Total para confirmar",
+      "difference": "Diferencia",
+      "breakdown": "Factura por el ingreso recibido: depósito {deposit} no sujeto a IVA y bestreta {advance}, IVA del 10% incluido.",
+      "tooSmall": "El ingreso debe superar los 200 € del depósito para emitir una bestreta positiva.",
+      "reconcile": "Conciliar pago",
+      "starting": "Iniciando conciliación",
+      "started": "Conciliación en proceso. La reserva aún no está confirmada.",
+      "loading": "Buscando reservas candidatas",
+      "error": "No se han podido consultar las reservas. El movimiento puede haber cambiado o tu sesión ha caducado.",
+      "retry": "Reintentar",
+      "count": "{count, plural, one {# reserva candidata} other {# reservas candidatas}}",
+      "empty": "No hay reservas esperando pago que coincidan.",
+      "previous": "Anterior",
+      "next": "Siguiente",
+      "booking": "Ver reserva",
+      "refresh": "Actualizar estado",
+      "stage": "Último paso completado: {stage}",
+      "statuses": {
+        "PENDING": "Conciliación en proceso; reserva sin confirmar.",
+        "IN_FLIGHT": "Holded está procesando una operación; reserva sin confirmar.",
+        "FAILED": "No se ha podido completar el paso. Se reintentará con límite; si persiste, requiere revisión.",
+        "UNKNOWN": "Resultado desconocido. Revisa Holded antes de continuar; no se repetirá automáticamente.",
+        "BLOCKED": "Conciliación bloqueada. Requiere revisión; la reserva no está confirmada.",
+        "COMPLETED": "Factura emitida, pago conciliado y envío aceptado. Reserva confirmada."
+      },
+      "stages": {
+        "PREPARED": "preparación",
+        "CONVERTED": "factura vinculada al presupuesto",
+        "CONFIGURED": "partidas de factura verificables",
+        "APPROVED": "factura aprobada",
+        "PAID": "cobro registrado",
+        "RECONCILED": "conciliación solicitada",
+        "SENT": "envío aceptado",
+        "COMPLETED": "reserva confirmada"
+      }
+    },
     "title": "Movimientos bancarios",
     "description": "Busca ingresos importados de Holded y compara sus totales según los filtros actuales.",
     "invalidFilters": "Algunos filtros no son válidos.",
@@ -852,6 +893,7 @@
       "confirm": "Confirmar pago",
       "dismiss": "Descartar propuesta",
       "confirmedAnnouncement": "Pago confirmado.",
+      "processingAnnouncement": "Conciliación en proceso. La reserva se confirmará tras completar Holded y aceptar el envío.",
       "dismissedAnnouncement": "Propuesta descartada.",
       "decidedBy": "Decidida por {name}",
       "errors": {
@@ -1075,6 +1117,7 @@
       "link": "Vincular pago",
       "dismiss": "Descartar",
       "confirmed": "Pago vinculado y reserva confirmada.",
+      "processing": "Conciliación en proceso. La reserva se confirmará tras completar Holded y aceptar el envío.",
       "dismissed": "Ingreso descartado para esta reserva.",
       "errors": {
         "unauthenticated": "Tu sesión ha caducado. Vuelve a iniciar sesión.",

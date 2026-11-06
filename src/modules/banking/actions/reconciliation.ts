@@ -3,6 +3,7 @@
 import "server-only";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 
 import { logger } from "@/lib/logger";
 import {
@@ -21,8 +22,29 @@ import {
   ReconciliationError,
 } from "@/modules/banking/services/reconciliation";
 import type { ReconciliationActionState } from "@/modules/banking/types";
+import type { MovementCandidatesResult } from "@/modules/banking/types";
+import { listMovementBookingCandidates } from "@/modules/banking/services/queries";
 
 export type { ReconciliationActionState } from "@/modules/banking/types";
+
+export async function movementBookingCandidatesAction(input: unknown): Promise<MovementCandidatesResult> {
+  try {
+    await requireBankingActor();
+    const parsed = z.object({
+      movementId: z.string().min(1).max(191),
+      page: z.number().int().min(1).max(10_000),
+    }).strict().safeParse(input);
+    if (!parsed.success) {
+      logger.warn({ event: "bank_candidates_invalid" }, "Invalid candidate query");
+      return { status: "error", reason: "unavailable" };
+    }
+    return await listMovementBookingCandidates(parsed.data.movementId, parsed.data.page);
+  } catch (error) {
+    logger.warn({ event: "bank_candidates_failed",
+      reason: error instanceof BankingAuthorizationError ? error.code : "unavailable" }, "Candidate query failed");
+    return { status: "error", reason: error instanceof BankingAuthorizationError ? "forbidden" : "unavailable" };
+  }
+}
 
 function errorState(error: unknown): ReconciliationActionState {
   if (error instanceof BankingAuthorizationError) {
@@ -64,7 +86,7 @@ export async function confirmBookingPaymentCandidateAction(
     revalidatePath("/bank-movements");
     revalidatePath("/bookings");
     revalidatePath(`/bookings/${result.bookingRequestId}`);
-    return { status: "confirmed", bookingRequestId: result.bookingRequestId };
+    return { status: "processing", bookingRequestId: result.bookingRequestId };
   } catch (error) {
     const state = errorState(error);
     logger.warn(
@@ -125,7 +147,7 @@ export async function confirmReconciliationProposalAction(
     revalidatePath("/bank-movements");
     revalidatePath("/bookings");
     revalidatePath(`/bookings/${result.bookingRequestId}`);
-    return { status: "confirmed", bookingRequestId: result.bookingRequestId };
+    return { status: "processing", bookingRequestId: result.bookingRequestId };
   } catch (error) {
     const state = errorState(error);
     logger.warn(

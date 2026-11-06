@@ -43,12 +43,14 @@ vi.mock("next-intl/server", () => ({
   setRequestLocale: mocks.setRequestLocale,
 }));
 vi.mock("@/i18n/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
   Link: ({ href, children, ...props }: React.ComponentProps<"a">) => (
     <a href={String(href)} {...props}>
       {children}
     </a>
   ),
 }));
+vi.mock("@/modules/calendar/services/links", () => ({ getBookingCalendar: vi.fn(async () => null) }));
 vi.mock("@/lib/holded/links", () => ({
   holdedEstimateUrl: (id: string) => `https://holded.example/estimate/${id}`,
 }));
@@ -226,6 +228,17 @@ describe("booking detail estimate delivery warning", () => {
     expect(screen.getByRole("alert")).not.toHaveTextContent("fiscal@example.test");
   });
 
+  it("shows an unfinished bank operation instead of allowing a second payment selection", async () => {
+    mocks.getBookingDetail.mockResolvedValue({
+      ...bookingWithDelivery("ACCEPTED"), state: "AWAITING_PAYMENT",
+      bankPaymentOperation: { bookingRequestId: "booking-1", stage: "PAID", status: "UNKNOWN" },
+    });
+    render(await BookingDetailPage({ params: Promise.resolve({ locale: "en", id: "booking-1" }) }));
+    expect(screen.getByText(enMessages.BankMovements.payment.statuses.UNKNOWN)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: enMessages.Bookings.bankCandidates.title })).not.toBeInTheDocument();
+    expect(mocks.listBookingPaymentCandidates).not.toHaveBeenCalled();
+  });
+
   it("does not warn after Holded accepted delivery", async () => {
     mocks.getBookingDetail.mockResolvedValue(bookingWithDelivery("ACCEPTED"));
 
@@ -399,7 +412,7 @@ describe("booking detail estimate delivery warning", () => {
       params: Promise.resolve({ locale: "en", id: "booking-1" }),
     });
     render(
-      <NextIntlClientProvider locale="en" messages={{ Bookings: enMessages.Bookings }}>
+      <NextIntlClientProvider locale="en" messages={enMessages}>
         {page}
       </NextIntlClientProvider>,
     );
@@ -440,7 +453,7 @@ describe("booking detail estimate delivery warning", () => {
       params: Promise.resolve({ locale: "en", id: "booking-1" }),
     });
     render(
-      <NextIntlClientProvider locale="en" messages={{ Bookings: enMessages.Bookings }}>
+      <NextIntlClientProvider locale="en" messages={enMessages}>
         {page}
       </NextIntlClientProvider>,
     );
@@ -488,7 +501,7 @@ describe("booking detail estimate delivery warning", () => {
       params: Promise.resolve({ locale: "en", id: "booking-1" }),
     });
     render(
-      <NextIntlClientProvider locale="en" messages={{ Bookings: enMessages.Bookings }}>
+      <NextIntlClientProvider locale="en" messages={enMessages}>
         {page}
       </NextIntlClientProvider>,
     );

@@ -60,6 +60,7 @@ export interface TransitionCommand {
   reason?: string;
   /** Guards against two operators deciding the same request concurrently. */
   expectedFrom?: BookingState;
+  paymentOperationId?: string;
 }
 
 export interface TransitionResult {
@@ -95,6 +96,14 @@ export async function transitionBooking(
   }
 
   const apply = async (tx: BookingTransactionClient): Promise<TransitionResult> => {
+    await tx.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${command.bookingRequestId} FOR UPDATE`;
+    const operation = await tx.bankPaymentOperation.findUnique({
+      where: { bookingRequestId: command.bookingRequestId },
+      select: { id: true, status: true },
+    });
+    if (operation && operation.status !== "COMPLETED" && operation.id !== command.paymentOperationId) {
+      throw new BookingTransitionError("state_changed", "A bank payment is being processed");
+    }
     const booking = await tx.bookingRequest.findUnique({
       where: { id: command.bookingRequestId },
       select: { id: true, state: true },
@@ -124,7 +133,12 @@ export async function transitionBooking(
     // Conditioned on the observed state so a concurrent transition loses rather
     // than silently overwriting.
     const updated = await tx.bookingRequest.updateMany({
-      where: { id: booking.id, state: booking.state },
+      where: {
+        id: booking.id, state: booking.state,
+        ...(command.paymentOperationId ? {} : {
+          OR: [{ bankPaymentOperation: null }, { bankPaymentOperation: { status: "COMPLETED" } }],
+        }),
+      },
       data: {
         state: command.to,
         ...(command.actorUserId !== null || reason || command.decidedAt

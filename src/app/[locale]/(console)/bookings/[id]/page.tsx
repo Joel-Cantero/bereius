@@ -11,6 +11,7 @@ import {
   dismissBookingPaymentCandidateAction,
 } from "@/modules/banking/actions/reconciliation";
 import { BookingPaymentCandidates } from "@/modules/banking/components/booking-payment-candidates";
+import { PaymentOperationStatus } from "@/modules/banking/components/payment-operation-status";
 import { listBookingPaymentCandidates } from "@/modules/banking/services/queries";
 import {
   changeCustomerAction,
@@ -87,7 +88,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
 
   const [contact, paymentCandidates] = await Promise.all([
     inspectCustomerContact(booking.id),
-    booking.state === "AWAITING_PAYMENT"
+    booking.state === "AWAITING_PAYMENT" && !booking.bankPaymentOperation
       ? listBookingPaymentCandidates(booking.id)
       : Promise.resolve([]),
   ]);
@@ -124,8 +125,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
     reserveInvoiceStatus === "reserveInvoiceBlocked" ||
     reserveInvoiceStatus === "reserveInvoiceUnknown" ||
     reserveInvoiceStatus === "reserveInvoiceDeliveryUnknown";
-  const canResendQuote = booking.state === "AWAITING_PAYMENT" ||
-    (linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state));
+  const canResendQuote = (!booking.bankPaymentOperation || booking.bankPaymentOperation.status === "COMPLETED") &&
+    (booking.state === "AWAITING_PAYMENT" || (linkedEstimate && ["CONFIRMED", "COMPLETED"].includes(booking.state)));
   const linkedEstimateUnsent =
     linkedEstimate !== undefined && !linkedEstimate.sentAt && !linkedEstimate.delivery;
   // An estimate already names a Holded contact, so the customer is fixed from then on.
@@ -330,7 +331,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted-foreground">{t("detail.advance")}</dt>
             <dd>
-              {booking.state === "AWAITING_PAYMENT" && booking.advanceCents !== null ? (
+              {booking.state === "AWAITING_PAYMENT" && !booking.bankPaymentOperation && booking.advanceCents !== null ? (
                 <AdvanceEditor
                   action={updateAdvanceAction}
                   bookingRequestId={booking.id}
@@ -355,7 +356,8 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         )}
       </section>
 
-      {booking.state === "AWAITING_PAYMENT" ? (
+      {booking.bankPaymentOperation ? <PaymentOperationStatus operation={booking.bankPaymentOperation} /> : null}
+      {booking.state === "AWAITING_PAYMENT" && !booking.bankPaymentOperation ? (
         <BookingPaymentCandidates
           bookingRequestId={booking.id}
           candidates={paymentCandidates}
@@ -489,11 +491,12 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           />
         ) : null}
 
-        {booking.state === "AWAITING_PAYMENT" ? (
+        {booking.state === "AWAITING_PAYMENT" && !booking.bankPaymentOperation ? (
           <PaymentForm action={recordPaymentAction} bookingRequestId={booking.id} />
         ) : null}
 
-        {["AWAITING_PAYMENT", "CONFIRMED"].includes(booking.state) ? (
+        {["AWAITING_PAYMENT", "CONFIRMED"].includes(booking.state) &&
+          (!booking.bankPaymentOperation || booking.bankPaymentOperation.status === "COMPLETED") ? (
           <DecisionForm
             action={cancelBookingAction}
             bookingRequestId={booking.id}

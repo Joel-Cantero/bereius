@@ -5,6 +5,7 @@ export type { BankMovementFilters } from "@/modules/banking/schema";
 export type ReconciliationActionState =
   | { status: "idle" }
   | { status: "confirmed"; bookingRequestId: string }
+  | { status: "processing"; bookingRequestId: string }
   | { status: "dismissed" }
   | {
       status: "error";
@@ -91,7 +92,28 @@ export interface BankMovementRow {
   status: "pending" | "reconciled";
   direction: "income" | "expense";
   proposals: ReconciliationProposalSummary[];
+  operation?: BankPaymentOperationSummary | null;
 }
+
+export interface BankPaymentOperationSummary {
+  bookingRequestId: string;
+  stage: "PREPARED" | "CONVERTED" | "CONFIGURED" | "APPROVED" | "PAID" | "RECONCILED" | "SENT" | "COMPLETED";
+  status: "PENDING" | "IN_FLIGHT" | "FAILED" | "UNKNOWN" | "BLOCKED" | "COMPLETED";
+}
+
+export interface MovementBookingCandidate {
+  bookingRequestId: string;
+  customerName: string;
+  startDate: string;
+  endDate: string;
+  estimateNumber: string;
+  expectedAmountMinor: string;
+  differenceMinor: string;
+}
+
+export type MovementCandidatesResult =
+  | { status: "ready"; candidates: MovementBookingCandidate[]; total: number }
+  | { status: "error"; reason: "unavailable" | "forbidden" };
 
 export interface BankMovementCurrencyTotals {
   currency: string;

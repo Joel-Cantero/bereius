@@ -805,6 +805,47 @@
     }
   },
   "BankMovements": {
+    "payment": {
+      "open": "View matching bookings",
+      "title": "Reconcile booking payment",
+      "description": "Awaiting-payment bookings within ±5% of the expected confirmation total. Confirmation waits for Holded completion and accepted delivery.",
+      "close": "Close",
+      "expected": "Total to confirm",
+      "difference": "Difference",
+      "breakdown": "Invoice for the received amount: {deposit} deposit not subject to VAT and {advance} advance, including 10% VAT.",
+      "tooSmall": "Income must exceed the €200 deposit to issue a positive advance.",
+      "reconcile": "Reconcile payment",
+      "starting": "Starting reconciliation",
+      "started": "Reconciliation in progress. The booking is not confirmed yet.",
+      "loading": "Finding matching bookings",
+      "error": "Bookings could not be loaded. The movement may have changed or your session expired.",
+      "retry": "Retry",
+      "count": "{count, plural, one {# matching booking} other {# matching bookings}}",
+      "empty": "No awaiting-payment bookings match.",
+      "previous": "Previous",
+      "next": "Next",
+      "booking": "View booking",
+      "refresh": "Refresh status",
+      "stage": "Last completed step: {stage}",
+      "statuses": {
+        "PENDING": "Reconciliation in progress; booking not confirmed.",
+        "IN_FLIGHT": "Holded is processing a step; booking not confirmed.",
+        "FAILED": "The step could not be completed. Bounded retries apply; persistent failure requires review.",
+        "UNKNOWN": "Unknown outcome. Review Holded before continuing; it will not be repeated automatically.",
+        "BLOCKED": "Reconciliation blocked. Review required; booking not confirmed.",
+        "COMPLETED": "Invoice issued, payment reconciled and delivery accepted. Booking confirmed."
+      },
+      "stages": {
+        "PREPARED": "preparation",
+        "CONVERTED": "invoice linked to estimate",
+        "CONFIGURED": "invoice lines configured",
+        "APPROVED": "invoice approved",
+        "PAID": "payment registered",
+        "RECONCILED": "reconciliation requested",
+        "SENT": "delivery accepted",
+        "COMPLETED": "booking confirmed"
+      }
+    },
     "title": "Bank movements",
     "description": "Search imported Holded income and compare totals for the current filters.",
     "invalidFilters": "Some filters are invalid.",
@@ -852,6 +893,7 @@
       "confirm": "Confirm payment",
       "dismiss": "Dismiss proposal",
       "confirmedAnnouncement": "Payment confirmed.",
+      "processingAnnouncement": "Reconciliation in progress. Confirmation waits for Holded completion and accepted delivery.",
       "dismissedAnnouncement": "Proposal dismissed.",
       "decidedBy": "Decided by {name}",
       "errors": {
@@ -1075,6 +1117,7 @@
       "link": "Link payment",
       "dismiss": "Dismiss",
       "confirmed": "Payment linked and booking confirmed.",
+      "processing": "Reconciliation in progress. Confirmation waits for Holded completion and accepted delivery.",
       "dismissed": "Income dismissed for this booking.",
       "errors": {
         "unauthenticated": "Your session has expired. Sign in again.",

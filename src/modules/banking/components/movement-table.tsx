@@ -16,8 +16,10 @@ import {
   type ReconciliationActionsProps,
 } from "@/modules/banking/components/reconciliation-actions";
 import type { BankMovementRow } from "@/modules/banking/types";
+import { MovementBookingDialog, type MovementCandidateActions } from "@/modules/banking/components/movement-booking-dialog";
+import { PaymentOperationStatus } from "@/modules/banking/components/payment-operation-status";
 
-export interface MovementTableProps {
+export interface MovementTableProps extends Partial<MovementCandidateActions> {
   rows: BankMovementRow[];
   locale: "en" | "es" | "ca";
   confirmAction: ReconciliationActionsProps["confirmAction"];
@@ -82,6 +84,8 @@ export function MovementTable({
   locale,
   confirmAction,
   dismissAction,
+  loadCandidatesAction,
+  confirmCandidateAction,
 }: MovementTableProps) {
   const t = useTranslations("BankMovements");
   const empty = t("emptyValue");
@@ -106,7 +110,11 @@ export function MovementTable({
                 {row.valueDate ? formatBankDate(row.valueDate, locale) : empty}
               </TableCell>
               <TableCell className="whitespace-normal break-words">
-                {row.concept ?? empty}
+                {row.status === "pending" && row.direction === "income" && row.currency === "EUR" &&
+                  !row.operation && loadCandidatesAction && confirmCandidateAction ? (
+                  <MovementBookingDialog movementId={row.id} amountMinor={row.amountMinor} concept={row.concept}
+                    loadCandidatesAction={loadCandidatesAction} confirmCandidateAction={confirmCandidateAction} />
+                ) : row.concept ?? empty}
               </TableCell>
               <TableCell className="text-right font-medium tabular-nums">
                 {formatMinorUnits(row.amountMinor, row.currency, locale)}
@@ -126,7 +134,10 @@ export function MovementTable({
                 </Badge>
               </TableCell>
             </TableRow>
-            {row.proposals.map((proposal) => (
+            {row.operation ? (
+              <TableRow><TableCell colSpan={5}><PaymentOperationStatus operation={row.operation} /></TableCell></TableRow>
+            ) : null}
+            {(row.operation ? [] : row.proposals).map((proposal) => (
               <TableRow key={proposal.id} className="hover:bg-transparent">
                 <TableCell
                   colSpan={5}

@@ -805,6 +805,47 @@
     }
   },
   "BankMovements": {
+    "payment": {
+      "open": "Veure reserves candidates",
+      "title": "Concilia el pagament de la reserva",
+      "description": "Reserves esperant pagament amb un total per confirmar dins del ±5% de l'ingrés. La confirmació espera que Holded es completi i accepti l'enviament.",
+      "close": "Tanca",
+      "expected": "Total per confirmar",
+      "difference": "Diferència",
+      "breakdown": "Factura per l'import rebut: dipòsit {deposit} no subjecte a IVA i bestreta {advance}, amb IVA del 10% inclòs.",
+      "tooSmall": "L'ingrés ha de superar els 200 € del dipòsit per emetre una bestreta positiva.",
+      "reconcile": "Concilia el pagament",
+      "starting": "Iniciant la conciliació",
+      "started": "Conciliació en procés. La reserva encara no està confirmada.",
+      "loading": "Cercant reserves candidates",
+      "error": "No s'han pogut consultar les reserves. El moviment pot haver canviat o la sessió ha caducat.",
+      "retry": "Torna-ho a provar",
+      "count": "{count, plural, one {# reserva candidata} other {# reserves candidates}}",
+      "empty": "No hi ha reserves esperant pagament que coincideixin.",
+      "previous": "Anterior",
+      "next": "Següent",
+      "booking": "Veure la reserva",
+      "refresh": "Actualitza l'estat",
+      "stage": "Últim pas completat: {stage}",
+      "statuses": {
+        "PENDING": "Conciliació en procés; reserva sense confirmar.",
+        "IN_FLIGHT": "Holded està processant un pas; reserva sense confirmar.",
+        "FAILED": "No s'ha pogut completar el pas. Es reintentarà amb límit; si persisteix, cal revisió.",
+        "UNKNOWN": "Resultat desconegut. Revisa Holded abans de continuar; no es repetirà automàticament.",
+        "BLOCKED": "Conciliació bloquejada. Cal revisió; reserva sense confirmar.",
+        "COMPLETED": "Factura emesa, pagament conciliat i enviament acceptat. Reserva confirmada."
+      },
+      "stages": {
+        "PREPARED": "preparació",
+        "CONVERTED": "factura vinculada al pressupost",
+        "CONFIGURED": "partides de factura configurades",
+        "APPROVED": "factura aprovada",
+        "PAID": "cobrament registrat",
+        "RECONCILED": "conciliació sol·licitada",
+        "SENT": "enviament acceptat",
+        "COMPLETED": "reserva confirmada"
+      }
+    },
     "title": "Moviments bancaris",
     "description": "Cerca ingressos importats de Holded i compara'n els totals segons els filtres actuals.",
     "invalidFilters": "Alguns filtres no són vàlids.",
@@ -852,6 +893,7 @@
       "confirm": "Confirma el pagament",
       "dismiss": "Descarta la proposta",
       "confirmedAnnouncement": "Pagament confirmat.",
+      "processingAnnouncement": "Conciliació en procés. La reserva es confirmarà quan Holded es completi i accepti l'enviament.",
       "dismissedAnnouncement": "Proposta descartada.",
       "decidedBy": "Decidida per {name}",
       "errors": {
@@ -1075,6 +1117,7 @@
       "link": "Vincula el pagament",
       "dismiss": "Descarta",
       "confirmed": "Pagament vinculat i reserva confirmada.",
+      "processing": "Conciliació en procés. La reserva es confirmarà quan Holded es completi i accepti l'enviament.",
       "dismissed": "Ingrés descartat per a aquesta reserva.",
       "errors": {
         "unauthenticated": "La teva sessió ha caducat. Torna a iniciar sessió.",

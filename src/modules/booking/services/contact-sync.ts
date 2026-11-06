@@ -266,6 +266,10 @@ async function recordEstimateLink(
   },
 ): Promise<void> {
   const { bookingRequestId, terms } = command;
+  await tx.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${bookingRequestId} FOR UPDATE`;
+  if (await tx.bankPaymentOperation.findUnique({ where: { bookingRequestId }, select: { id: true } })) {
+    throw new ContactSyncError("estimate_linked");
+  }
   const document = {
     holdedId: terms.estimate.id,
     documentNumber: terms.estimate.number,

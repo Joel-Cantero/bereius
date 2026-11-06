@@ -33,6 +33,8 @@ function CandidateActions({
   candidate: BookingPaymentCandidate;
 }) {
   const t = useTranslations("Bookings.bankCandidates");
+  const invoice = useTranslations("BankMovements.payment");
+  const locale = useLocale();
   const [confirmState, confirmFormAction, confirmPending] = useActionState(
     confirmAction,
     IDLE,
@@ -41,7 +43,9 @@ function CandidateActions({
     dismissAction,
     IDLE,
   );
-  const pending = confirmPending || dismissPending;
+  const pending = confirmPending || dismissPending || confirmState.status === "processing";
+  const receivedCents = Number(candidate.amountMinor);
+  const money = (cents: number) => new Intl.NumberFormat(locale, { style: "currency", currency: "EUR" }).format(cents / 100);
   const result =
     confirmState.status !== "idle"
       ? confirmState
@@ -51,6 +55,8 @@ function CandidateActions({
   const resultMessage =
     result?.status === "confirmed"
       ? t("confirmed")
+      : result?.status === "processing"
+        ? t("processing")
       : result?.status === "dismissed"
         ? t("dismissed")
         : result?.status === "error"
@@ -65,7 +71,7 @@ function CandidateActions({
           <input type="hidden" name="movementId" value={candidate.movementId} />
           <button
             type="submit"
-            disabled={pending}
+            disabled={pending || receivedCents <= 20_000 || receivedCents > 2_147_483_647}
             className="inline-flex items-center gap-1.5 rounded-md bg-zinc-900 px-3 py-2 text-sm font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
           >
             <Check className="size-4" aria-hidden="true" />
@@ -85,6 +91,9 @@ function CandidateActions({
           </button>
         </form>
       </div>
+      {receivedCents > 20_000 ? <p className="max-w-72 text-right text-xs text-muted-foreground">
+        {invoice("breakdown", { deposit: money(20_000), advance: money(receivedCents - 20_000) })}
+      </p> : <p role="alert" className="text-xs">{invoice("tooSmall")}</p>}
       {resultMessage ? (
         <p
           role={result?.status === "error" ? "alert" : "status"}

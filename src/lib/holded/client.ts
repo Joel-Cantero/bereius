@@ -34,6 +34,7 @@ const holdedCallerSchema = z.enum([
   "unknown",
   "banking.accounts",
   "banking.synchronization",
+  "banking.payment",
   "booking.integration-test",
   "booking.contacts",
   "booking.contracts",
@@ -53,6 +54,9 @@ function holdedEndpointTemplate(logicalUrl: string): string {
     [/^\/payment-methods$/u, "/payment-methods"],
     [/^\/treasury\/accounts$/u, "/treasury/accounts"],
     [/^\/treasury\/accounts\/[^/]+\/bank-movements$/u, "/treasury/accounts/:id/bank-movements"],
+    [/^\/treasury\/accounts\/[^/]+\/bank-movements\/[^/]+\/reconcile$/u, "/treasury/accounts/:id/bank-movements/:id/reconcile"],
+    [/^\/documents\/convert$/u, "/documents/convert"],
+    [/^\/invoices\/[^/]+\/payments$/u, "/invoices/:id/payments"],
     [/^\/contacts$/u, "/contacts"],
     [/^\/contacts\/[^/]+$/u, "/contacts/:id"],
     [/^\/estimates$/u, "/estimates"],
@@ -207,6 +211,16 @@ export class HoldedCreationError extends HoldedError {
   ) {
     super(code, message);
     this.name = "HoldedCreationError";
+  }
+}
+
+export class HoldedMutationError extends HoldedError {
+  constructor(
+    code: HoldedError["code"],
+    readonly outcome: "definitive_failure" | "unknown",
+  ) {
+    super(code, "Holded payment operation failed");
+    this.name = "HoldedMutationError";
   }
 }
 
@@ -499,6 +513,14 @@ export interface HoldedInvoiceSummary {
   items: HoldedInvoiceLineSummary[];
 }
 
+export interface HoldedInvoiceEvidence {
+  source: { id: string; doc_type: string } | null;
+  draft: boolean;
+  paidCents: number;
+  pendingCents: number;
+  payments: Array<{ id: string; amountCents: number; date: string | null; bankId: string }>;
+}
+
 /** What the booking screen compares against; not the whole Holded record. */
 export interface HoldedContact {
   id: string;
@@ -562,7 +584,7 @@ export interface HoldedClient {
   ): Promise<HoldedEstimateSummary[]>;
   /** Every estimate in the account, so an operator can find one without a booking. */
   listEstimates(): Promise<HoldedEstimateSummary[]>;
-  getEstimate(estimateId: string): Promise<HoldedEstimateSummary | null>;
+  getEstimate(estimateId: string, options?: HoldedReadOptions): Promise<HoldedEstimateSummary | null>;
   getInvoice(invoiceId: string): Promise<HoldedInvoiceSummary | null>;
   listNumberingSeries(type: HoldedNumberingType): Promise<HoldedOption[]>;
   /**
@@ -586,6 +608,19 @@ export interface HoldedClient {
     subject?: string,
   ): Promise<void>;
   createInvoice(input: HoldedInvoiceInput): Promise<HoldedDocumentResult>;
+  convertEstimateToInvoice(input: {
+    estimateId: string;
+    date: Date;
+    numberingSeriesId: string;
+  }): Promise<{ id: string }>;
+  configureReserveInvoice(invoiceId: string, input: HoldedInvoiceInput): Promise<void>;
+  getInvoiceEvidence(invoiceId: string): Promise<HoldedInvoiceEvidence>;
+  registerInvoicePayment(invoiceId: string, input: {
+    amountCents: number; accountId: string; date: Date;
+  }): Promise<void>;
+  reconcileBankPayment(input: {
+    accountId: string; movementId: string; collectionId: string;
+  }): Promise<void>;
   replaceEstimateLines(estimateId: string, items: HoldedDocumentLine[]): Promise<void>;
   removeEstimateDeductions(estimateId: string, input: {
     contactId: string;
@@ -842,6 +877,45 @@ export function createHoldedClient(
       taxes: line.taxes ?? [],
       account: line.accountId,
     };
+  }
+
+  async function mutate(
+    method: "POST" | "PUT",
+    path: string,
+    body: unknown,
+  ): Promise<unknown> {
+    const outcome = await execute({
+      client: httpClient,
+      logicalUrl: `${HOLDED_BASE_URL}${path}`,
+      init: {
+        method,
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${apiKey}`,
+          "content-type": "application/json",
+        },
+        body: serializeProviderJson(body),
+      },
+      timeoutMs: HOLDED_TIMEOUT_MS,
+      maxResponseBytes: HOLDED_RESPONSE_LIMIT_BYTES,
+    });
+    const failure = classify(outcome);
+    if (failure) {
+      throw new HoldedMutationError(
+        failure.code,
+        ["unauthorized", "not_found", "rate_limited", "invalid_request"].includes(failure.code)
+          ? "definitive_failure" : "unknown",
+      );
+    }
+    if (outcome.kind !== "response" || outcome.bodyTooLarge) {
+      throw new HoldedMutationError("malformed_response", "unknown");
+    }
+    if (!outcome.body) return null;
+    try {
+      return JSON.parse(outcome.body);
+    } catch {
+      throw new HoldedMutationError("malformed_response", "unknown");
+    }
   }
 
   /** Creates return the identifier only; the number needs a second read. */
@@ -1198,7 +1272,7 @@ export function createHoldedClient(
       );
     },
 
-    getEstimate(estimateId) {
+    getEstimate(estimateId, options) {
       return cachedHoldedRead(
         `${credentialScope}:estimate:detail:${estimateId}`,
         HOLDED_DOCUMENT_READ_CACHE_MS,
@@ -1213,6 +1287,7 @@ export function createHoldedClient(
             throw error;
           }
         },
+        options,
       );
     },
 
@@ -1514,6 +1589,77 @@ export function createHoldedClient(
         payment_method_id: input.paymentMethodId,
         items: input.items.map(toLine),
       });
+    },
+
+    async convertEstimateToInvoice(input) {
+      const payload = await mutate("POST", "/documents/convert", {
+        source_type: "estimate",
+        source_id: holdedProviderIdSchema.parse(input.estimateId),
+        target_type: "invoice",
+        date: isoDate(input.date),
+        due_date: isoDate(input.date),
+        number_line_id: holdedProviderIdSchema.parse(input.numberingSeriesId),
+        draft: true,
+      });
+      const parsed = z.object({ id: holdedProviderIdSchema }).safeParse(payload);
+      if (!parsed.success) throw new HoldedMutationError("malformed_response", "unknown");
+      invalidateCachedHoldedReads(`${credentialScope}:estimate:`);
+      return parsed.data;
+    },
+
+    async configureReserveInvoice(invoiceId, input) {
+      await mutate("PUT", `/invoices/${holdedProviderIdSchema.parse(invoiceId)}`, {
+        contact_id: input.contactId,
+        date: isoDate(input.date),
+        due_date: isoDate(input.dueDate),
+        description: input.description,
+        notes: input.notes,
+        language: input.language,
+        currency: "EUR",
+        tax_included: TAX_INCLUDED,
+        discount: 0,
+        payment_method_id: input.paymentMethodId,
+        items: input.items.map(toLine),
+      });
+    },
+
+    async getInvoiceEvidence(invoiceId) {
+      const money = z.union([z.string().regex(/^\d+(?:\.\d{1,2})?$/u), z.number().nonnegative()])
+        .transform((value) => Math.round(Number(value) * 100))
+        .refine(Number.isSafeInteger);
+      const evidence = z.object({
+        from: z.object({ id: holdedProviderIdSchema, doc_type: z.string() }).nullable(),
+        draft: z.boolean(),
+        payments_total: money,
+        payments_pending: money,
+        payments_detail: z.array(z.object({
+          id: holdedProviderIdSchema, amount: money,
+          date: z.string().nullable(), bank_id: holdedProviderIdSchema,
+        })),
+      }).safeParse(await request("GET", `/invoices/${holdedProviderIdSchema.parse(invoiceId)}`));
+      if (!evidence.success) throw new HoldedError("malformed_response", "Invalid invoice evidence");
+      return {
+        source: evidence.data.from, draft: evidence.data.draft,
+        paidCents: evidence.data.payments_total, pendingCents: evidence.data.payments_pending,
+        payments: evidence.data.payments_detail.map((payment) => ({
+          id: payment.id, amountCents: payment.amount, date: payment.date, bankId: payment.bank_id,
+        })),
+      };
+    },
+
+    async registerInvoicePayment(invoiceId, input) {
+      await mutate("POST", `/invoices/${holdedProviderIdSchema.parse(invoiceId)}/payments`, {
+        amount: (input.amountCents / 100).toFixed(2),
+        treasury_id: holdedProviderIdSchema.parse(input.accountId),
+        date: isoDate(input.date),
+      });
+    },
+
+    async reconcileBankPayment(input) {
+      await mutate("POST",
+        `/treasury/accounts/${holdedProviderIdSchema.parse(input.accountId)}/bank-movements/${holdedProviderIdSchema.parse(input.movementId)}/reconcile`,
+        { documents: [{ document_id: holdedProviderIdSchema.parse(input.collectionId), document_type: "collection" }] },
+      );
     },
 
     async removeEstimateDeductions(estimateId, input) {

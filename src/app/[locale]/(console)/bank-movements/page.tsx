@@ -12,6 +12,8 @@ import {
 import {
   confirmReconciliationProposalAction,
   dismissReconciliationProposalAction,
+  movementBookingCandidatesAction,
+  confirmBookingPaymentCandidateAction,
 } from "@/modules/banking/actions/reconciliation";
 import { requestBankSyncAction } from "@/modules/banking/actions/synchronization";
 import { MovementFilters } from "@/modules/banking/components/movement-filters";
@@ -208,6 +210,8 @@ export default async function BankMovementsPage({
           locale={locale}
           confirmAction={confirmReconciliationProposalAction}
           dismissAction={dismissReconciliationProposalAction}
+          loadCandidatesAction={movementBookingCandidatesAction}
+          confirmCandidateAction={confirmBookingPaymentCandidateAction}
         />
       ) : (
         <div className="flex items-center justify-between gap-4 border-y py-8">

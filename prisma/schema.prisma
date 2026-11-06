@@ -202,6 +202,26 @@ enum BankMovementDirection {
   EXPENSE
 }
 
+enum BankPaymentStage {
+  PREPARED
+  CONVERTED
+  CONFIGURED
+  APPROVED
+  PAID
+  RECONCILED
+  SENT
+  COMPLETED
+}
+
+enum BankPaymentStatus {
+  PENDING
+  IN_FLIGHT
+  FAILED
+  UNKNOWN
+  BLOCKED
+  COMPLETED
+}
+
 enum BankSyncTrigger {
   SCHEDULED
   MANUAL
@@ -296,6 +316,7 @@ model BookingRequest {
   auditEvents                 BookingAuditEvent[]
   operationEvents             BookingOperationEvent[]
   bankReconciliationProposals BankReconciliationProposal[]
+  bankPaymentOperation        BankPaymentOperation?
   calendarLink                CalendarBookingLink?
   calendarAuditEvents         CalendarBookingAuditEvent[]
   createdAt                   DateTime                     @default(now())
@@ -588,12 +609,39 @@ model BankMovement {
   account   HoldedTreasuryAccount        @relation(fields: [accountId], references: [id], onDelete: Restrict)
   proposals BankReconciliationProposal[]
   payment   Payment?
+  paymentOperation BankPaymentOperation?
 
   @@unique([accountId, holdedMovementId])
   @@index([bookingDate(sort: Desc), holdedMovementId])
   @@index([accountId, bookingDate(sort: Desc)])
   @@index([direction, bookingDate(sort: Desc)])
   @@index([currency, bookingDate(sort: Desc)])
+}
+
+model BankPaymentOperation {
+  id               String            @id @default(cuid())
+  bookingRequestId String            @unique
+  movementId       String            @unique
+  actorUserId      String
+  stage            BankPaymentStage  @default(PREPARED)
+  status           BankPaymentStatus @default(PENDING)
+  amountCents      Int
+  receivedAt       DateTime          @db.Date
+  reference        String?           @db.Text
+  contactId        String
+  estimateId       String
+  invoiceId        String?           @unique
+  collectionId     String?
+  lastFailureCode  String?
+  attemptedAt      DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Restrict)
+  movement       BankMovement   @relation(fields: [movementId], references: [id], onDelete: Restrict)
+
+  @@index([status, updatedAt])
 }
 
 model BankSyncRun {

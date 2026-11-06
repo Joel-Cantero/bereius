@@ -190,6 +190,9 @@ export function createBankingFixtureScope(label = "banking") {
 
     await client.$transaction(async (transaction) => {
       if (trackedAccountIds.length > 0) {
+        await transaction.bankPaymentOperation.deleteMany({
+          where: { movement: { accountId: { in: trackedAccountIds } } },
+        });
         await transaction.$executeRawUnsafe(
           'DELETE FROM "BankReconciliationProposal" WHERE "movementId" IN (SELECT "id" FROM "BankMovement" WHERE "accountId" = ANY($1::text[]))',
           trackedAccountIds,

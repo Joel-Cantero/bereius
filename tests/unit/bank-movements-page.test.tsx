@@ -109,7 +109,7 @@ function translate(key: string, values?: Record<string, string | number>) {
 }
 
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
-vi.mock("next-intl", () => ({ useTranslations: () => translate }));
+vi.mock("next-intl", () => ({ useTranslations: () => translate, useLocale: () => "en" }));
 vi.mock("next-intl/server", () => ({
   getTranslations: () => translate,
   setRequestLocale: mocks.setRequestLocale,
@@ -666,7 +666,7 @@ describe("booking payment candidate actions", () => {
 
     await expect(
       confirmBookingPaymentCandidateAction(idle, formData),
-    ).resolves.toEqual({ status: "confirmed", bookingRequestId });
+    ).resolves.toEqual({ status: "processing", bookingRequestId });
     expect(mocks.confirmBookingCandidate).toHaveBeenCalledWith({
       bookingRequestId,
       movementId,
