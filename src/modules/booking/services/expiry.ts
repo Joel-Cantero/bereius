@@ -45,6 +45,7 @@ export async function expireUnpaidBookings(
     where: {
       state: "AWAITING_PAYMENT",
       bankPaymentOperation: null,
+      payments: { none: {} },
       paymentDueAt: { lte: expiryAttemptStartedAt },
     },
     select: { id: true },
@@ -90,6 +91,7 @@ export async function expireUnpaidBookings(
           id: candidate.id,
           state: "AWAITING_PAYMENT",
           bankPaymentOperation: null,
+          payments: { none: {} },
           paymentDueAt: { lte: expiryAttemptStartedAt },
           bankReconciliationProposals: {
             none: { status: "PENDING" },

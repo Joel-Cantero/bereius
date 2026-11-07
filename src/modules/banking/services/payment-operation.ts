@@ -8,14 +8,14 @@ import { logger } from "@/lib/logger";
 import { holdedBankMovementSchema } from "@/modules/banking/schema";
 import { isAutomaticReconciliationMatch, isBookingPaymentCandidate } from "@/modules/banking/services/payment-matching";
 import { ReconciliationError } from "@/modules/banking/services/reconciliation-error";
-import { transitionBooking } from "@/modules/booking/services/lifecycle";
 import { enqueueJob, MAX_ATTEMPTS, type OutboxJob } from "@/modules/booking/services/outbox";
-import { BOOKING_MAIL_JOB_KIND } from "@/modules/booking/services/mail";
+import { BookingTransitionError } from "@/modules/booking/services/lifecycle";
 import { prepareDocumentDelivery, deliverPreparedDocument } from "@/modules/booking/services/document-delivery";
 import { isCompatibleReserveInvoice } from "@/modules/booking/services/reserve-invoice";
 import { resolveIntegration, type HoldedConfig } from "@/modules/booking/services/settings";
 import { RECEIVED_ADVANCE_LINE, DEPOSIT_LINE, bookingManagementSubject, stayDescription, quoteNotes } from "@/modules/booking/wording";
 import { billableHeadcount, countNights } from "@/modules/booking/services/pricing";
+import { enqueueGoogleCalendarBookingSync } from "@/modules/calendar/services/booking-sync";
 
 export const BANK_PAYMENT_JOB_KIND = "banking.payment";
 export const RESERVE_DEPOSIT_CENTS = 20_000;
@@ -222,6 +222,13 @@ export async function runBankPaymentJob(
   async function complete() {
     await db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "BookingRequest" WHERE "id" = ${operation.bookingRequestId} FOR UPDATE`;
+      const currentBooking = await tx.bookingRequest.findUnique({
+        where: { id: operation.bookingRequestId },
+        select: { state: true },
+      });
+      if (!currentBooking || currentBooking.state !== "AWAITING_PAYMENT") {
+        throw new BookingTransitionError("state_changed", "Booking changed before payment finalization");
+      }
       const fresh = await tx.bankPaymentOperation.findUniqueOrThrow({ where: { id: operationId } });
       if (fresh.status === "COMPLETED") return;
       if (fresh.stage !== "SENT" || !["PENDING", "FAILED"].includes(fresh.status)) {
@@ -241,10 +248,7 @@ export async function runBankPaymentJob(
           amountCents: operation.amountCents, receivedAt: operation.receivedAt,
           reference: operation.reference, recordedById: actor?.id ?? null },
       });
-      await transitionBooking({
-        bookingRequestId: operation.bookingRequestId, to: "CONFIRMED", expectedFrom: "AWAITING_PAYMENT",
-        actorUserId: actor?.id ?? null, paymentOperationId: operationId,
-      }, tx);
+      await enqueueGoogleCalendarBookingSync(operation.bookingRequestId, tx);
       const decidedAt = new Date();
       await tx.bankReconciliationProposal.updateMany({
         where: { bookingRequestId: operation.bookingRequestId, movementId: operation.movementId },
@@ -256,13 +260,6 @@ export async function runBankPaymentJob(
         ] },
         data: { status: "INVALIDATED", invalidatedAt: decidedAt, invalidationCode: "SIBLING_CONFIRMED" },
       });
-      const customer = await tx.customer.findUniqueOrThrow({ where: { id: operation.bookingRequest.customerId } });
-      await enqueueJob({
-        kind: BOOKING_MAIL_JOB_KIND,
-        idempotencyKey: `${BOOKING_MAIL_JOB_KIND}:confirmed:${operation.bookingRequestId}`,
-        payload: { to: customer.email, subject: "Your booking is confirmed",
-          text: "We have received your payment and your booking is confirmed." },
-      }, tx);
       await tx.bankPaymentOperation.update({
         where: { id: operationId }, data: { stage: "COMPLETED", status: "COMPLETED", completedAt: decidedAt },
       });

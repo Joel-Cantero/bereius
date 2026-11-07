@@ -177,7 +177,14 @@ enum IntegrationProvider {
   GRAVITY_FORMS
   BOOKING_MAIL
   CALENDAR_ICS
+  GOOGLE_CALENDAR
   WORDPRESS
+}
+
+enum GoogleCalendarBookingEventStatus {
+  PENDING
+  CREATED
+  DELETED
 }
 
 enum DocumentDeliveryStatus {
@@ -318,6 +325,7 @@ model BookingRequest {
   bankReconciliationProposals BankReconciliationProposal[]
   bankPaymentOperation        BankPaymentOperation?
   calendarLink                CalendarBookingLink?
+  googleCalendarEvent         GoogleCalendarBookingEvent?
   calendarAuditEvents         CalendarBookingAuditEvent[]
   createdAt                   DateTime                     @default(now())
   updatedAt                   DateTime                     @updatedAt
@@ -325,6 +333,22 @@ model BookingRequest {
   @@unique([gravityEntryId, submittedAt])
   @@index([state, createdAt])
   @@index([customerId])
+}
+
+model GoogleCalendarBookingEvent {
+  id               String                          @id @default(cuid())
+  bookingRequestId String                          @unique
+  calendarId       String                          @db.Text
+  eventId          String                          @db.VarChar(1024)
+  status           GoogleCalendarBookingEventStatus @default(PENDING)
+  lastFailureCode  String?
+  syncedAt         DateTime?
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+
+  bookingRequest BookingRequest @relation(fields: [bookingRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([calendarId, eventId])
 }
 
 model CalendarBookingLink {

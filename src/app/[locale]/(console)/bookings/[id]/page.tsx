@@ -41,6 +41,9 @@ import { getBookingDetail } from "@/modules/booking/services/queries";
 import { getLoginPathForLocale, parseLoginLocale } from "@/modules/login/schema";
 import { BookingCalendarPanel } from "@/modules/calendar/components/booking-calendar-panel";
 import { getBookingCalendar } from "@/modules/calendar/services/links";
+import { getGoogleCalendarBookingSyncView } from "@/modules/calendar/services/booking-sync";
+import { retryGoogleCalendarBookingAction } from "@/modules/calendar/actions/booking-sync";
+import { BookingCalendarSyncStatus } from "@/modules/calendar/components/booking-calendar-sync-status";
 
 interface BookingDetailPageProps {
   params: Promise<{ locale: string; id: string }>;
@@ -86,11 +89,12 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
       ? booking.advanceCents + booking.depositCents
       : null;
 
-  const [contact, paymentCandidates] = await Promise.all([
+  const [contact, paymentCandidates, googleCalendarSync] = await Promise.all([
     inspectCustomerContact(booking.id),
     booking.state === "AWAITING_PAYMENT" && !booking.bankPaymentOperation
       ? listBookingPaymentCandidates(booking.id)
       : Promise.resolve([]),
+    getGoogleCalendarBookingSyncView(booking.id),
   ]);
   const linkedEstimate = booking.documents.find(
     (document) => document.type === "ESTIMATE",
@@ -169,6 +173,13 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
       </section>
 
       {calendar ? <BookingCalendarPanel bookingRequestId={booking.id} locale={locale} canLink={booking.state === "CONFIRMED"} view={calendar} /> : null}
+      {googleCalendarSync.status !== "none" ? (
+        <BookingCalendarSyncStatus
+          bookingRequestId={booking.id}
+          view={googleCalendarSync}
+          action={retryGoogleCalendarBookingAction}
+        />
+      ) : null}
 
       <section aria-labelledby="customer-heading" className="flex flex-col gap-1">
         <h2 id="customer-heading" className="text-lg font-medium">

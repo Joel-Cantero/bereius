@@ -209,6 +209,28 @@
     "description": "Calendari de reserves",
     "integrationTitle": "Calendari ICS",
     "url": "URL HTTPS del calendari ICS",
+    "googleSettings": {
+      "title": "Calendari de Google per escriure esdeveniments",
+      "calendarId": "Id del calendari de destinació",
+      "serviceAccountJson": "JSON del compte de servei",
+      "shareCalendar": "Comparteix aquest calendari amb el correu del compte de servei i dona-li permís per modificar esdeveniments.",
+      "storedCredential": "Hi ha una credencial del compte de servei desada. Deixa aquest camp buit per conservar-la o introdueix un JSON nou per substituir-la."
+    },
+    "googleBookingSync": {
+      "title": "Esdeveniment de Google Calendar",
+      "pending": "El pagament està registrat. S'espera Google Calendar abans de confirmar la reserva.",
+      "created": "Esdeveniment creat a Google Calendar; reserva confirmada.",
+      "failed": "La reserva continua pendent de confirmar perquè no s'ha pogut crear l'esdeveniment de Google Calendar.",
+      "retry": "Torna a sincronitzar el calendari",
+      "retrying": "S'ha posat la sincronització a la cua.",
+      "errors": {
+        "unauthenticated": "Torna a iniciar sessió per reintentar-ho.",
+        "forbidden": "No tens permís per reintentar aquesta operació.",
+        "invalid": "L'identificador de la reserva no és vàlid.",
+        "state_changed": "La reserva o la tasca ja no es poden reintentar. Recarrega la pàgina.",
+        "unknown": "No s'ha pogut reintentar la sincronització. Torna-ho a provar."
+      }
+    },
     "previous": "Mes anterior",
     "next": "Mes següent",
     "today": "Avui",
@@ -1205,12 +1227,14 @@
       "amount_mismatch": "L'import no coincideix al cèntim amb el que es deu. Revisa-ho a mà.",
       "quote_busy": "Ja hi ha una petició en curs o molt recent. Recarrega abans de tornar-ho a provar.",
       "quote_delivery_unknown": "No es pot reenviar perquè l'enviament anterior està en curs o té un resultat desconegut. Comprova-ho a Holded.",
+      "calendar_sync": "Google Calendar no ha pogut esborrar l'esdeveniment d'aquesta reserva. No s'ha cancel·lat; restableix l'accés al calendari i torna-ho a provar.",
       "customer_not_found": "No hi ha cap client ni contacte de Holded amb aquest NIF.",
       "customer_without_email": "El contacte de Holded no té correu electrònic. Afegeix-lo a Holded i torna-ho a provar.",
       "contract_linked": "Aquest contracte ja està vinculat a una sol·licitud. Recarrega la pàgina.",
       "authentication": "El servei ha rebutjat la credencial. Comprova que sigui correcta i que tingui permisos.",
       "connection": "No s'ha pogut contactar amb el servei. Torna-ho a provar més tard.",
       "not_found": "El servei respon però no troba el recurs. Revisa la URL base i l'identificador del formulari.",
+      "calendar_not_found": "Google Calendar no troba aquest calendari. Comprova l'id i els permisos per compartir-lo.",
       "rejected": "El servei ha rebutjat la petició. Revisa la configuració.",
       "unknown": "No s'ha pogut completar l'acció."
     },
@@ -1318,6 +1342,7 @@
         "GRAVITY_FORMS": "Gravity Forms",
         "BOOKING_MAIL": "Correu de notificacions",
         "CALENDAR_ICS": "Calendari ICS",
+        "GOOGLE_CALENDAR": "Calendari de Google d'escriptura",
         "WORDPRESS": "WordPress"
       },
       "choose": "Tria una opció"

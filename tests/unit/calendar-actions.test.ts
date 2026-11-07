@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ actor: vi.fn(), save: vi.fn(), resolve: vi.fn(), verified: vi.fn(), fetch: vi.fn(), revalidate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ actor: vi.fn(), save: vi.fn(), resolve: vi.fn(), verified: vi.fn(), fetch: vi.fn(), verifyGoogle: vi.fn(), revalidate: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidate }));
 vi.mock("@/lib/logger", () => ({ logger: { info: vi.fn(), warn: vi.fn() } }));
@@ -17,9 +17,10 @@ vi.mock("@/modules/booking/services/settings", () => {
   return { IntegrationSettingsError, saveIntegrationSettings: mocks.save, resolveIntegration: mocks.resolve, markIntegrationVerified: mocks.verified, listIntegrationStatus: vi.fn(), normalizeTaxId: vi.fn(), readIntegrationConfig: vi.fn() };
 });
 vi.mock("@/modules/calendar/source", async (original) => ({ ...await original<typeof import("@/modules/calendar/source")>(), fetchCalendarSource: mocks.fetch }));
+vi.mock("@/modules/calendar/services/google-calendar", () => ({ verifyGoogleCalendarAccess: mocks.verifyGoogle }));
 
 import { AuthorizationError } from "@/modules/booking/authorization";
-import { saveCalendarSettings, testIntegration } from "@/modules/booking/actions/settings";
+import { saveCalendarSettings, saveGoogleCalendarSettings, testIntegration } from "@/modules/booking/actions/settings";
 import { readCalendar } from "@/modules/calendar/services/calendar";
 import { IntegrationSettingsError } from "@/modules/booking/services/settings";
 
@@ -31,6 +32,7 @@ describe("calendar integration actions", () => {
     mocks.actor.mockResolvedValue({ userId: "trusted-admin", role: "ADMINISTRATOR" });
     mocks.resolve.mockResolvedValue({ config: {}, secret: "https://example.test/feed.ics" });
     mocks.fetch.mockResolvedValue(source);
+    mocks.verifyGoogle.mockResolvedValue(undefined);
   });
   it.each(["unauthenticated", "forbidden"] as const)("rejects %s changes and connection tests", async (reason) => {
     mocks.actor.mockRejectedValue(new AuthorizationError(reason));
@@ -48,6 +50,30 @@ describe("calendar integration actions", () => {
     expect(mocks.save).toHaveBeenCalledWith({ provider: "CALENDAR_ICS", config: {}, secret: "https://example.test/feed.ics?token=fixture", updatedById: "trusted-admin" });
     expect(mocks.revalidate).toHaveBeenCalled();
   });
+  it("stores Google Calendar ID separately from its service-account secret", async () => {
+    const data = new FormData();
+    const credential = JSON.stringify({ type: "service_account", client_email: "calendar@example.test", private_key: "synthetic-test-key" });
+    data.set("calendarId", "calendar@example.test");
+    data.set("serviceAccountJson", credential);
+    data.set("userId", "untrusted");
+
+    expect(await saveGoogleCalendarSettings({ status: "idle" }, data)).toEqual({ status: "saved" });
+    expect(mocks.actor).toHaveBeenCalledWith("ADMINISTRATOR");
+    expect(mocks.save).toHaveBeenCalledWith({
+      provider: "GOOGLE_CALENDAR",
+      config: { calendarId: "calendar@example.test" },
+      secret: credential,
+      updatedById: "trusted-admin",
+    });
+  });
+  it("rejects malformed Google service-account JSON before persistence", async () => {
+    const data = new FormData();
+    data.set("calendarId", "calendar@example.test");
+    data.set("serviceAccountJson", "not-json");
+
+    expect(await saveGoogleCalendarSettings({ status: "idle" }, data)).toEqual({ status: "error", reason: "invalid" });
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   it("rejects invalid source before persistence", async () => {
     const data = new FormData();
     data.set("calendarUrl", "https://127.0.0.1/feed");
@@ -61,6 +87,14 @@ describe("calendar integration actions", () => {
     mocks.verified.mockClear();
     expect(await testIntegration("CALENDAR_ICS")).toEqual({ status: "error", reason: "connection" });
     expect(mocks.verified).not.toHaveBeenCalled();
+  });
+  it("verifies writable Google access without exposing the credential", async () => {
+    const secret = JSON.stringify({ type: "service_account", client_email: "calendar@example.test", private_key: "synthetic-test-key" });
+    mocks.resolve.mockResolvedValue({ config: { calendarId: "calendar@example.test" }, secret });
+
+    expect(await testIntegration("GOOGLE_CALENDAR")).toEqual({ status: "verified" });
+    expect(mocks.verifyGoogle).toHaveBeenCalledWith({ calendarId: "calendar@example.test" }, secret);
+    expect(mocks.verified).toHaveBeenCalledWith("GOOGLE_CALENDAR");
   });
   it("returns a safe failure without exposing source errors", async () => {
     mocks.fetch.mockRejectedValue(new Error("private source details"));

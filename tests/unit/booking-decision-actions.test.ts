@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
-const mocks = vi.hoisted(() => ({ requireBookingActor: vi.fn(), approveBooking: vi.fn(), updateAdvance: vi.fn(), revalidatePath: vi.fn(), warn: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requireBookingActor: vi.fn(), approveBooking: vi.fn(), cancelBooking: vi.fn(), updateAdvance: vi.fn(), revalidatePath: vi.fn(), warn: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/logger", () => ({ logger: { warn: mocks.warn } }));
 vi.mock("@/modules/booking/authorization", () => ({
@@ -13,7 +13,7 @@ vi.mock("@/modules/booking/authorization", () => ({
 }));
 vi.mock("@/modules/booking/services/decisions", () => ({
   approveBooking: mocks.approveBooking,
-  cancelBooking: vi.fn(),
+  cancelBooking: mocks.cancelBooking,
   recordPayment: vi.fn(),
   rejectBooking: vi.fn(),
   updateAdvance: mocks.updateAdvance,
@@ -27,9 +27,11 @@ vi.mock("@/modules/booking/services/lifecycle", () => ({
 
 import { AuthorizationError } from "@/modules/booking/authorization";
 import { BookingTransitionError } from "@/modules/booking/services/lifecycle";
+import { GoogleCalendarError } from "@/modules/calendar/services/google-calendar";
 import {
   approveBookingAction,
   approveBookingWithoutEmailAction,
+  cancelBookingAction,
   updateAdvanceAction,
 } from "@/modules/booking/actions/decisions";
 
@@ -59,7 +61,8 @@ describe("booking approval actions", () => {
       actorUserId: "operator-1",
       sendQuote,
     });
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/bookings/booking-1");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/[locale]/(console)/bookings", "page");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/[locale]/(console)/bookings/[id]", "page");
   });
 
   it.each(["unauthenticated", "forbidden"] as const)("refuses %s callers", async (reason) => {
@@ -101,7 +104,8 @@ describe("advance update action", () => {
       actorUserId: "operator-1",
       advanceCents: 25_010,
     });
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/bookings/booking-1");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/[locale]/(console)/bookings", "page");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/[locale]/(console)/bookings/[id]", "page");
   });
 
   it.each([null, "", " ", "-1", "abc", "1000001"])("rejects the advance %j", async (advance) => {
@@ -118,5 +122,22 @@ describe("advance update action", () => {
   it("reports a booking that is no longer awaiting payment", async () => {
     mocks.updateAdvance.mockRejectedValue(new BookingTransitionError("state_changed", "paid"));
     expect(await updateAdvanceAction({ status: "idle" }, advanceForm("100"))).toEqual({ status: "error", reason: "state_changed" });
+  });
+});
+
+describe("booking cancellation action", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.requireBookingActor.mockResolvedValue({ userId: "operator-1", role: "OPERATOR" });
+  });
+
+  it("returns a safe error when Google cannot delete the event", async () => {
+    mocks.cancelBooking.mockRejectedValue(new GoogleCalendarError("unavailable"));
+
+    expect(await cancelBookingAction({ status: "idle" }, form())).toEqual({
+      status: "error",
+      reason: "calendar_sync",
+    });
+    expect(mocks.warn).not.toHaveBeenCalled();
   });
 });

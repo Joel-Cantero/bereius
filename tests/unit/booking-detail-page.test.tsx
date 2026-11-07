@@ -51,6 +51,10 @@ vi.mock("@/i18n/navigation", () => ({
   ),
 }));
 vi.mock("@/modules/calendar/services/links", () => ({ getBookingCalendar: vi.fn(async () => null) }));
+vi.mock("@/modules/calendar/services/booking-sync", () => ({
+  getGoogleCalendarBookingSyncView: vi.fn(async () => ({ status: "none", lastFailureCode: null, eventId: null })),
+}));
+vi.mock("@/modules/calendar/actions/booking-sync", () => ({ retryGoogleCalendarBookingAction: vi.fn() }));
 vi.mock("@/lib/holded/links", () => ({
   holdedEstimateUrl: (id: string) => `https://holded.example/estimate/${id}`,
 }));

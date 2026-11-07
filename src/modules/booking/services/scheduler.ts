@@ -21,8 +21,14 @@ import {
   RESERVE_INVOICE_JOB_KIND,
   runReserveInvoiceJob,
 } from "@/modules/booking/services/reserve-invoice";
+import { GOOGLE_CALENDAR_BOOKING_JOB_KIND } from "@/modules/calendar/constants";
 
 const HOUR_MS = 3_600_000;
+
+const runGoogleCalendarBookingOutboxJob: JobHandler = async (job) => {
+  const { runGoogleCalendarBookingJob } = await import("@/modules/calendar/services/booking-sync");
+  await runGoogleCalendarBookingJob(job);
+};
 
 export const SCHEDULES = {
   banking: BANK_SYNC_SWEEP_INTERVAL_MS,
@@ -37,6 +43,7 @@ const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   [BANK_PAYMENT_JOB_KIND]: runBankPaymentJob,
   [QUOTE_JOB_KIND]: runQuoteJob,
   [RESERVE_INVOICE_JOB_KIND]: runReserveInvoiceJob,
+  [GOOGLE_CALENDAR_BOOKING_JOB_KIND]: runGoogleCalendarBookingOutboxJob,
   [BOOKING_MAIL_JOB_KIND]: runBookingMailJob,
 };
 

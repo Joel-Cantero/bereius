@@ -84,8 +84,8 @@ export async function confirmBookingPaymentCandidateAction(
       actorUserId: actor.userId,
     });
     revalidatePath("/bank-movements");
-    revalidatePath("/bookings");
-    revalidatePath(`/bookings/${result.bookingRequestId}`);
+    revalidatePath("/[locale]/(console)/bookings", "page");
+    revalidatePath("/[locale]/(console)/bookings/[id]", "page");
     return { status: "processing", bookingRequestId: result.bookingRequestId };
   } catch (error) {
     const state = errorState(error);
@@ -115,7 +115,7 @@ export async function dismissBookingPaymentCandidateAction(
       actorUserId: actor.userId,
     });
     revalidatePath("/bank-movements");
-    revalidatePath(`/bookings/${parsed.data.bookingRequestId}`);
+    revalidatePath("/[locale]/(console)/bookings/[id]", "page");
     return { status: "dismissed" };
   } catch (error) {
     const state = errorState(error);
@@ -145,8 +145,8 @@ export async function confirmReconciliationProposalAction(
       actorUserId: actor.userId,
     });
     revalidatePath("/bank-movements");
-    revalidatePath("/bookings");
-    revalidatePath(`/bookings/${result.bookingRequestId}`);
+    revalidatePath("/[locale]/(console)/bookings", "page");
+    revalidatePath("/[locale]/(console)/bookings/[id]", "page");
     return { status: "processing", bookingRequestId: result.bookingRequestId };
   } catch (error) {
     const state = errorState(error);
