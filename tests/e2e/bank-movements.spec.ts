@@ -561,7 +561,7 @@ test("queues a reconciliation proposal manually by keyboard without premature co
   await expect(page.getByText(enMessages.BankMovements.payment.stage.replace("{stage}", enMessages.BankMovements.payment.stages.PREPARED))).toBeVisible();
 });
 
-test("selects a booking from a movement and completes linked Holded payment and delegate delivery", async ({ page, context, baseURL, request }) => {
+test("selects a booking and queues Google confirmation after Holded payment and delivery", async ({ page, context, baseURL, request }) => {
   test.setTimeout(120_000);
   const fixtureUrl = process.env.E2E_PROVIDER_HTTP_URL;
   const secretKey = process.env.BOOKING_SECRET_KEY;
@@ -611,7 +611,19 @@ test("selects a booking from a movement and completes linked Holded payment and 
         await dialog.getByRole("button", { name: target.messages.payment.reconcile }).click();
       }
     }
-    await expect.poll(() => readBookingState(booking.id), { timeout: 90_000 }).toBe("CONFIRMED");
+    await expect.poll(async () => (await pool.query<{ status: string }>(
+      `SELECT "status" FROM "BankPaymentOperation" WHERE "bookingRequestId" = $1`, [booking.id],
+    )).rows[0]?.status, { timeout: 90_000 }).toBe("COMPLETED");
+    await expect.poll(() => readBookingState(booking.id)).toBe("AWAITING_PAYMENT");
+    const recordedPayments = await pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS "count" FROM "Payment" WHERE "bookingRequestId" = $1`, [booking.id],
+    );
+    expect(recordedPayments.rows[0]?.count).toBe(1);
+    const calendarJob = await pool.query<{ kind: string; payload: { bookingRequestId: string } }>(
+      `SELECT "kind", "payload" FROM "IntegrationJob" WHERE "idempotencyKey" = $1`,
+      [`calendar.booking-event:${booking.id}`],
+    );
+    expect(calendarJob.rows).toEqual([{ kind: "calendar.booking-event", payload: { bookingRequestId: booking.id } }]);
     const captured = await request.get(`${fixtureUrl}/control/requests`);
     const { requests } = await captured.json() as { requests: { logicalUrl: string; method: string; body: string }[] };
     const writes = requests.filter((item) => item.method !== "GET" && item.logicalUrl.includes("api.holded.com"));

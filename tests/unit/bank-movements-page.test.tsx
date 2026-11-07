@@ -673,9 +673,10 @@ describe("booking payment candidate actions", () => {
       actorUserId: "trusted-operator-id",
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/bank-movements");
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/bookings");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/[locale]/(console)/bookings", "page");
     expect(mocks.revalidatePath).toHaveBeenCalledWith(
-      `/bookings/${bookingRequestId}`,
+      "/[locale]/(console)/bookings/[id]",
+      "page",
     );
   });
 
@@ -696,7 +697,8 @@ describe("booking payment candidate actions", () => {
     });
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/bank-movements");
     expect(mocks.revalidatePath).toHaveBeenCalledWith(
-      `/bookings/${bookingRequestId}`,
+      "/[locale]/(console)/bookings/[id]",
+      "page",
     );
   });
 

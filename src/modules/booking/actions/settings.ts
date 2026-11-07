@@ -14,6 +14,8 @@ import { logger } from "@/lib/logger";
 import { revalidatePath } from "next/cache";
 import { calendarUrlSchema, fetchCalendarSource } from "@/modules/calendar/source";
 import { parseCalendar } from "@/modules/calendar/ical";
+import { GoogleCalendarError, verifyGoogleCalendarAccess } from "@/modules/calendar/services/google-calendar";
+import { googleCalendarConfigSchema, parseGoogleServiceAccountJson } from "@/modules/calendar/schema";
 import {
   AuthorizationError,
   requireBookingActor,
@@ -45,6 +47,7 @@ export type SettingsActionState =
         | "authentication"
         | "connection"
         | "not_found"
+        | "calendar_not_found"
         | "rejected"
         | "unknown";
     };
@@ -54,6 +57,7 @@ const providerSchema = z.enum([
   "GRAVITY_FORMS",
   "BOOKING_MAIL",
   "CALENDAR_ICS",
+  "GOOGLE_CALENDAR",
 ]);
 
 const RATE_SKUS = [
@@ -89,6 +93,12 @@ function toErrorState(error: unknown): SettingsActionState {
   }
   if (error instanceof BookingSecretError) {
     return { status: "error", reason: "storage_unavailable" };
+  }
+  if (error instanceof GoogleCalendarError) {
+    if (error.code === "invalid_credentials") return { status: "error", reason: "authentication" };
+    if (error.code === "calendar_not_found") return { status: "error", reason: "calendar_not_found" };
+    if (error.code === "unavailable") return { status: "error", reason: "connection" };
+    return { status: "error", reason: "rejected" };
   }
   if (error instanceof SmtpError) {
     return { status: "error", reason: error.code };
@@ -132,6 +142,31 @@ export async function saveCalendarSettings(
       provider: "CALENDAR_ICS",
       config: {},
       secret: parsed.data,
+      updatedById: actor.userId,
+    });
+    revalidatePath("/", "layout");
+    return { status: "saved" };
+  } catch (error) {
+    return toErrorState(error);
+  }
+}
+
+export async function saveGoogleCalendarSettings(
+  _previous: SettingsActionState,
+  formData: FormData,
+): Promise<SettingsActionState> {
+  try {
+    const actor = await requireBookingActor("ADMINISTRATOR");
+    const config = googleCalendarConfigSchema.safeParse({ calendarId: formData.get("calendarId") });
+    const rawCredential = formData.get("serviceAccountJson");
+    const hasCredential = typeof rawCredential === "string" && rawCredential.trim().length > 0;
+    const serviceAccount = hasCredential ? parseGoogleServiceAccountJson(rawCredential) : null;
+    if (!config.success || (hasCredential && !serviceAccount)) return { status: "error", reason: "invalid" };
+
+    await saveIntegrationSettings({
+      provider: "GOOGLE_CALENDAR",
+      config: config.data,
+      ...(serviceAccount ? { secret: serviceAccount.raw } : {}),
       updatedById: actor.userId,
     });
     revalidatePath("/", "layout");
@@ -202,6 +237,9 @@ export async function testIntegration(
       } catch {
         return { status: "error", reason: "connection" };
       }
+    } else if (validated === "GOOGLE_CALENDAR") {
+      const { config, secret } = await resolveIntegration("GOOGLE_CALENDAR");
+      await verifyGoogleCalendarAccess(config, secret);
     } else if (validated === "BOOKING_MAIL") {
       const { config, secret } = await resolveIntegration("BOOKING_MAIL");
       await createSmtpSender(
@@ -229,7 +267,7 @@ export async function testIntegration(
     }
 
     await markIntegrationVerified(validated);
-    if (validated === "CALENDAR_ICS") revalidatePath("/", "layout");
+    if (validated === "CALENDAR_ICS" || validated === "GOOGLE_CALENDAR") revalidatePath("/", "layout");
 
     return { status: "verified" };
   } catch (error) {

@@ -33,7 +33,7 @@ HoldedDocument and DocumentDelivery. Logs use local IDs and stable failure codes
 | PAID | Registered receipt; payment amount/account/date must verify |
 | RECONCILED | Collection ID and reconciled original movement verified |
 | SENT | Invoice submission accepted; frozen fiscal To and active delegate CC |
-| COMPLETED | Local Payment, booking confirmation/audit and confirmation-mail outbox committed together |
+| COMPLETED | Local Payment and one Google Calendar confirmation job committed together; the booking remains AWAITING_PAYMENT until its event is reconciled |
 
 `FAILED` permits bounded retries from the saved stage; exhausted attempts become `BLOCKED`.
 `UNKNOWN` and `BLOCKED` require operator review and never automatically repeat fiscal writes.
@@ -59,10 +59,26 @@ There is deliberately no destructive cleanup of partial fiscal work.
    repair the saved IDs and last **verified completed** stage, then requeue the same operation/job.
    Do not reset its stage to PREPARED or change receipt/source data. Record the evidence and operator
    decision outside public logs. Restore all status/recipient invariants before resuming the worker.
-7. Verify exactly one local Payment, one confirmation audit and one confirmation-mail job. Check that
-   the booking is still awaiting payment until invoice submission acceptance and local finalization.
+7. Verify exactly one local Payment and one Google Calendar confirmation job. The bank operation may
+   be COMPLETED while the booking remains AWAITING_PAYMENT. Only after the Google event is
+   reconciled should one confirmation audit and one confirmation-mail job exist and the booking
+   become CONFIRMED.
 
 Rolling back code does not undo the migration, an approved invoice, a collection or an email.
 Do not run the old image against unfinished bank operations: it lacks their conflict guards.
 Correct fiscal mistakes through the account's authorized accounting process, not by deleting local
 evidence or restoring a database backup over newer fiscal activity.
+
+## Google Calendar confirmation handoff
+
+Successful Holded invoice submission and bank reconciliation are necessary but no longer sufficient
+to confirm a booking. The final bank transaction persists the payment, completes the bank operation,
+and enqueues one idempotent `calendar.booking-event` job. The booking stays AWAITING_PAYMENT until
+the worker verifies or creates the event using its stable Google event ID, then commits the booking
+transition, audit row, and confirmation-mail job together.
+
+If the Google job is exhausted, retain the payment, invoice, movement, and event-link row. Restore
+the service account's writer access and use the booking detail's retry action; it requeues the same
+job and event ID. Do not remove the payment or create another bank operation. If the event insert
+outcome is ambiguous, inspect the stored calendar/event ID and Google event before any manual repair;
+Google does not provide strict exactly-once guarantees for every ambiguous distributed response.

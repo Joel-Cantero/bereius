@@ -64,7 +64,7 @@ export async function listBookingQueue(
     },
     orderBy: filters.sort
       ? [{ [filters.sort]: filters.direction ?? "desc" }]
-      : [{ state: "asc" }, { submittedAt: "desc" }],
+      : [{ submittedAt: "desc" }],
     take: BOOKING_QUEUE_PAGE_SIZE,
     select: {
       id: true,

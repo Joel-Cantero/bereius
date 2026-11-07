@@ -8,6 +8,8 @@ import { beginBankPayment, runBankPaymentJob, BANK_PAYMENT_JOB_KIND, recoverInte
 import { listMovementBookingCandidates } from "@/modules/banking/services/queries";
 import { reconcileBankMovements } from "@/modules/banking/services/reconciliation";
 import { recordPayment, cancelBooking, updateAdvance } from "@/modules/booking/services/decisions";
+import { GOOGLE_CALENDAR_BOOKING_JOB_KIND } from "@/modules/calendar/constants";
+import { googleCalendarBookingJobKey } from "@/modules/calendar/services/booking-sync";
 import type { HoldedConfig } from "@/modules/booking/services/settings";
 import { createBankingFixtureScope } from "../helpers/banking";
 
@@ -32,7 +34,7 @@ async function fixture(amountCents = 30_100) {
     data: { bookingRequestId: booking.id, type: "ESTIMATE", holdedId: estimateId,
       documentNumber: "E-1", issuedAt: booking.decidedAt! },
   });
-  const account = await db.holdedTreasuryAccount.create({ data: scope.treasuryAccount() });
+  const account = await db.holdedTreasuryAccount.create({ data: scope.treasuryAccount({ active: false }) });
   const movement = await db.bankMovement.create({
     data: scope.movement(account, { amountMinor: BigInt(amountCents), narrative: "E-1 received" }),
   });
@@ -106,20 +108,23 @@ describe.skipIf(process.env.RUN_INTEGRATION_TESTS !== "true")("durable bank paym
     for (const scope of scopes) {
       const ids = await db.bookingRequest.findMany({ where: { id: { startsWith: scope.scopeId } }, select: { id: true } });
       await db.integrationJob.deleteMany({ where: { idempotencyKey: { in: ids.map(({ id }) => `booking.mail:confirmed:${id}`) } } });
+      await db.integrationJob.deleteMany({ where: { idempotencyKey: { in: ids.map(({ id }) => googleCalendarBookingJobKey(id)) } } });
       await scope.cleanup();
     }
     scopes.clear(); operationIds.clear();
   });
   afterAll(() => db.$disconnect());
 
-  it.each([28_500, 31_500])("uses received %i cents and confirms only after Holded and delivery", async (amount) => {
+  it.each([28_500, 31_500])("records received %i cents and queues Google before confirmation", async (amount) => {
     const context = await fixture(amount);
     const { job } = await started(context);
     const client = provider(context);
     expect((await db.bookingRequest.findUniqueOrThrow({ where: { id: context.booking.id } })).state).toBe("AWAITING_PAYMENT");
     await runBankPaymentJob(job, { client, config });
-    expect((await db.bookingRequest.findUniqueOrThrow({ where: { id: context.booking.id } })).state).toBe("CONFIRMED");
+    expect((await db.bookingRequest.findUniqueOrThrow({ where: { id: context.booking.id } })).state).toBe("AWAITING_PAYMENT");
     expect(await db.payment.findFirst({ where: { bookingRequestId: context.booking.id } })).toMatchObject({ amountCents: amount, bankMovementId: context.movement.id });
+    expect(await db.integrationJob.findUnique({ where: { idempotencyKey: googleCalendarBookingJobKey(context.booking.id) } }))
+      .toMatchObject({ kind: GOOGLE_CALENDAR_BOOKING_JOB_KIND, payload: { bookingRequestId: context.booking.id } });
     expect(client.configureReserveInvoice).toHaveBeenCalledWith(invoiceId, expect.objectContaining({
       items: [expect.objectContaining({ price: (amount - 20_000) / 100, taxes: ["s_iva_10"] }),
         expect.objectContaining({ price: 200, taxes: ["s_iva_nosujeto"] })],
@@ -129,7 +134,7 @@ describe.skipIf(process.env.RUN_INTEGRATION_TESTS !== "true")("durable bank paym
     await runBankPaymentJob(job, { client, config });
     expect(client.registerInvoicePayment).toHaveBeenCalledOnce();
     expect(client.sendInvoice).toHaveBeenCalledOnce();
-    expect(await db.bookingAuditEvent.count({ where: { bookingRequestId: context.booking.id, toState: "CONFIRMED" } })).toBe(1);
+    expect(await db.bookingAuditEvent.count({ where: { bookingRequestId: context.booking.id, toState: "CONFIRMED" } })).toBe(0);
     const run = await db.bankSyncRun.create({ data: {
       accountId: context.account.id, trigger: "MANUAL", windowStartDate: context.account.importStartDate,
     } });

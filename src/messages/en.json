@@ -209,6 +209,28 @@
     "description": "Booking calendar",
     "integrationTitle": "ICS calendar",
     "url": "HTTPS ICS URL",
+    "googleSettings": {
+      "title": "Writable Google Calendar",
+      "calendarId": "Destination calendar ID",
+      "serviceAccountJson": "Service-account JSON",
+      "shareCalendar": "Share this calendar with the service-account email and grant permission to make changes to events.",
+      "storedCredential": "A service-account credential is stored. Leave this field empty to keep it, or enter replacement JSON."
+    },
+    "googleBookingSync": {
+      "title": "Google Calendar event",
+      "pending": "Payment is recorded. Waiting for Google Calendar before confirming the booking.",
+      "created": "Google Calendar event created; booking confirmed.",
+      "failed": "The booking is still awaiting payment confirmation because its Google Calendar event could not be created.",
+      "retry": "Retry calendar sync",
+      "retrying": "Calendar sync queued.",
+      "errors": {
+        "unauthenticated": "Sign in again before retrying.",
+        "forbidden": "You do not have permission to retry this operation.",
+        "invalid": "The booking identifier is invalid.",
+        "state_changed": "This booking or sync job is no longer ready to retry. Reload the page.",
+        "unknown": "The calendar sync could not be retried. Try again."
+      }
+    },
     "previous": "Previous month",
     "next": "Next month",
     "today": "Today",
@@ -1205,12 +1227,14 @@
       "amount_mismatch": "The amount does not match what is owed to the cent. Review it by hand.",
       "quote_busy": "A request is already running or was made recently. Reload before trying again.",
       "quote_delivery_unknown": "Cannot resend while the previous delivery is running or its outcome is unknown. Check it in Holded.",
+      "calendar_sync": "Google Calendar could not remove this reservation event. The booking was not cancelled; restore calendar access and retry.",
       "customer_not_found": "No customer or Holded contact has this tax ID.",
       "customer_without_email": "The Holded contact has no email address. Add one in Holded and try again.",
       "contract_linked": "This contract is already linked to a request. Reload the page.",
       "authentication": "The service refused the credential. Check that it is correct and carries the right permissions.",
       "connection": "The service could not be reached. Try again shortly.",
       "not_found": "The service answers but cannot find the resource. Check the base URL and the form id.",
+      "calendar_not_found": "Google Calendar could not find this calendar. Check its ID and sharing settings.",
       "rejected": "The service refused the request. Review the configuration.",
       "unknown": "The action could not be completed."
     },
@@ -1318,6 +1342,7 @@
         "GRAVITY_FORMS": "Gravity Forms",
         "BOOKING_MAIL": "Notification email",
         "CALENDAR_ICS": "ICS calendar",
+        "GOOGLE_CALENDAR": "Writable Google Calendar",
         "WORDPRESS": "WordPress"
       },
       "choose": "Choose an option"

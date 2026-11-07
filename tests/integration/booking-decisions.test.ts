@@ -21,6 +21,8 @@ import {
 } from "@/modules/banking/services/reconciliation";
 import { BANK_PAYMENT_JOB_KIND } from "@/modules/banking/services/payment-operation";
 import { BOOKING_MAIL_JOB_KIND } from "@/modules/booking/services/mail";
+import { GOOGLE_CALENDAR_BOOKING_JOB_KIND } from "@/modules/calendar/constants";
+import { googleCalendarBookingJobKey } from "@/modules/calendar/services/booking-sync";
 import { QUOTE_JOB_KIND } from "@/modules/booking/services/quoting";
 import {
   reserveInvoiceJobKey,
@@ -124,6 +126,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
           { idempotencyKey: `${QUOTE_JOB_KIND}:${id}` },
           { idempotencyKey: reserveInvoiceJobKey(id) },
           { idempotencyKey: { startsWith: `${BOOKING_MAIL_JOB_KIND}:` } },
+          { idempotencyKey: googleCalendarBookingJobKey(id) },
         ]),
       },
     });
@@ -185,7 +188,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     });
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
-    ).resolves.toMatchObject({ state: "CONFIRMED" });
+    ).resolves.toMatchObject({ state: "AWAITING_PAYMENT" });
   });
 
   it("refuses to change the advance once the booking is no longer awaiting payment", async () => {
@@ -257,7 +260,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     ).rejects.toMatchObject({ code: "state_changed" });
   });
 
-  it("confirms a booking when the transfer matches to the cent", async () => {
+  it("records a matching transfer and queues Google sync before confirming", async () => {
     const actor = await operator();
     const request = await booking("AWAITING_PAYMENT");
 
@@ -271,10 +274,13 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
 
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
-    ).resolves.toMatchObject({ state: "CONFIRMED" });
+    ).resolves.toMatchObject({ state: "AWAITING_PAYMENT" });
     await expect(
       db.payment.count({ where: { bookingRequestId: request.id } }),
     ).resolves.toBe(1);
+    await expect(
+      db.integrationJob.findUniqueOrThrow({ where: { idempotencyKey: googleCalendarBookingJobKey(request.id) } }),
+    ).resolves.toMatchObject({ kind: GOOGLE_CALENDAR_BOOKING_JOB_KIND, payload: { bookingRequestId: request.id } });
   });
 
   it("rolls back a manual payment when the booking state is stale", async () => {
@@ -309,7 +315,7 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
     ).resolves.toBe(0);
   });
 
-  it("records one manual payment, transition, audit event, and post-commit mail", async () => {
+  it("records one manual payment and one Google sync job without confirming early", async () => {
     const actor = await operator();
     const request = await booking("AWAITING_PAYMENT");
     const receivedAt = new Date("2026-09-12T00:00:00.000Z");
@@ -337,20 +343,20 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
       db.bookingAuditEvent.findMany({
         where: { bookingRequestId: request.id },
       }),
-    ).resolves.toMatchObject([
-      {
-        actorUserId: actor.id,
-        fromState: "AWAITING_PAYMENT",
-        toState: "CONFIRMED",
-      },
-    ]);
+    ).resolves.toEqual([]);
     await expect(
       db.integrationJob.count({
         where: {
           idempotencyKey: `${BOOKING_MAIL_JOB_KIND}:confirmed:${request.id}`,
         },
       }),
+    ).resolves.toBe(0);
+    await expect(
+      db.integrationJob.count({ where: { idempotencyKey: googleCalendarBookingJobKey(request.id) } }),
     ).resolves.toBe(1);
+    await expect(
+      db.bookingRequest.findUniqueOrThrow({ where: { id: request.id } }),
+    ).resolves.toMatchObject({ state: "AWAITING_PAYMENT" });
     await expect(
       db.documentIssuance.count({ where: { bookingRequestId: request.id } }),
     ).resolves.toBe(0);
@@ -359,6 +365,22 @@ describe.skipIf(!runIntegrationTests)("booking decisions integration", () => {
         where: { idempotencyKey: reserveInvoiceJobKey(request.id) },
       }),
     ).resolves.toBe(0);
+  });
+
+  it("does not record a second manual payment while Google sync is pending", async () => {
+    const actor = await operator();
+    const request = await booking("AWAITING_PAYMENT");
+    const command = {
+      bookingRequestId: request.id,
+      actorUserId: actor.id,
+      amountCents: 63_200,
+      receivedAt: new Date(),
+    };
+
+    await recordPayment(command);
+    await expect(recordPayment(command)).rejects.toMatchObject({ code: "state_changed" });
+    await expect(db.payment.count({ where: { bookingRequestId: request.id } })).resolves.toBe(1);
+    await expect(db.integrationJob.count({ where: { idempotencyKey: googleCalendarBookingJobKey(request.id) } })).resolves.toBe(1);
   });
 
   it("rolls back a movement-backed decision when the booking state is stale", async () => {

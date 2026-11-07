@@ -28,7 +28,7 @@ describe.skipIf(!runIntegrationTests)("booking integration settings", () => {
    * These run against the development database, so a provider the developer has
    * already configured must survive the test that overwrites it.
    */
-  async function borrowProvider(provider: "BOOKING_MAIL" | "HOLDED" | "CALENDAR_ICS") {
+  async function borrowProvider(provider: "BOOKING_MAIL" | "HOLDED" | "CALENDAR_ICS" | "GOOGLE_CALENDAR") {
     const original = await db.integrationSettings.findUnique({ where: { provider } });
 
     return async () => {
@@ -211,6 +211,30 @@ describe.skipIf(!runIntegrationTests)("booking integration settings", () => {
       await expect(resolveIntegration("CALENDAR_ICS")).resolves.toMatchObject({ secret });
       await saveIntegrationSettings({ provider: "CALENDAR_ICS", config: {}, secret: "https://example.test/replaced.ics", updatedById: null });
       expect((await db.integrationSettings.findUniqueOrThrow({ where: { provider: "CALENDAR_ICS" } })).verifiedAt).toBeNull();
+    } finally {
+      await restore();
+    }
+  });
+
+  it("stores Google service-account data encrypted and never lists the credential", async () => {
+    const restore = await borrowProvider("GOOGLE_CALENDAR");
+    const credential = "synthetic-google-service-account-credential";
+    try {
+      await saveIntegrationSettings({
+        provider: "GOOGLE_CALENDAR",
+        config: { calendarId: "calendar@example.test" },
+        secret: credential,
+        updatedById: null,
+      });
+
+      const row = await db.integrationSettings.findUniqueOrThrow({ where: { provider: "GOOGLE_CALENDAR" } });
+      expect(JSON.stringify(row.config)).toContain("calendar@example.test");
+      expect(Buffer.from(row.secretCiphertext!).toString("utf8")).not.toContain(credential);
+      expect(JSON.stringify(await listIntegrationStatus())).not.toContain(credential);
+      await expect(resolveIntegration("GOOGLE_CALENDAR")).resolves.toMatchObject({
+        config: { calendarId: "calendar@example.test" },
+        secret: credential,
+      });
     } finally {
       await restore();
     }

@@ -10,6 +10,10 @@ import {
 } from "@/modules/booking/services/lifecycle";
 import { queueBookingMail } from "@/modules/booking/services/mail";
 import { enqueueQuote } from "@/modules/booking/services/quoting";
+import {
+  cancelGoogleCalendarBooking,
+  enqueueGoogleCalendarBookingSync,
+} from "@/modules/calendar/services/booking-sync";
 
 export interface DecisionCommand {
   bookingRequestId: string;
@@ -135,12 +139,19 @@ export async function rejectBooking(command: DecisionCommand): Promise<void> {
 }
 
 export async function cancelBooking(command: DecisionCommand): Promise<void> {
-  await transitionBooking({
-    bookingRequestId: command.bookingRequestId,
-    to: "CANCELLED",
-    actorUserId: command.actorUserId,
-    reason: command.reason,
-  });
+  const cancelledWithGoogle = await cancelGoogleCalendarBooking(
+    command.bookingRequestId,
+    command.actorUserId,
+    command.reason,
+  );
+  if (!cancelledWithGoogle) {
+    await transitionBooking({
+      bookingRequestId: command.bookingRequestId,
+      to: "CANCELLED",
+      actorUserId: command.actorUserId,
+      reason: command.reason,
+    });
+  }
 
   await notify(
     command.bookingRequestId,
@@ -170,7 +181,7 @@ export class PaymentError extends Error {
 }
 
 /**
- * Records a received transfer and confirms the booking.
+ * Records a received transfer and queues Google Calendar confirmation.
  *
  * Strict by decision: the amount must equal the advance plus the deposit to the
  * cent. Anything else is left for manual review rather than quietly confirming
@@ -183,11 +194,21 @@ export async function recordTrustedPayment(
 ) {
   const booking = await transaction.bookingRequest.findUnique({
     where: { id: command.bookingRequestId },
-    select: { id: true, advanceCents: true, depositCents: true },
+    select: {
+      id: true,
+      state: true,
+      advanceCents: true,
+      depositCents: true,
+      payments: { select: { id: true }, take: 1 },
+      bankPaymentOperation: { select: { id: true } },
+    },
   });
 
   if (!booking) {
     throw new PaymentError("unknown_booking", "Booking request not found");
+  }
+  if (booking.state !== "AWAITING_PAYMENT" || booking.payments.length > 0 || booking.bankPaymentOperation) {
+    throw new BookingTransitionError("state_changed", "This booking already has a payment or is being processed");
   }
 
   const expected = (booking.advanceCents ?? 0) + (booking.depositCents ?? 0);
@@ -220,33 +241,16 @@ export async function recordTrustedPayment(
     select: { id: true, createdAt: true },
   });
 
-  await transitionBooking({
-    bookingRequestId: booking.id,
-    to: "CONFIRMED",
-    actorUserId: command.actorUserId,
-    expectedFrom: "AWAITING_PAYMENT",
-  }, transaction);
+  await enqueueGoogleCalendarBookingSync(booking.id, transaction);
 
   return payment;
 }
 
-export async function queueBookingConfirmation(
-  bookingRequestId: string,
-): Promise<void> {
-  await notify(
-    bookingRequestId,
-    "confirmed",
-    "Your booking is confirmed",
-    "We have received your payment and your booking is confirmed.",
-  );
-}
-
 export async function recordPayment(command: RecordPaymentCommand): Promise<void> {
   await db.$transaction((transaction) => recordTrustedPayment(command, transaction));
-  await queueBookingConfirmation(command.bookingRequestId);
 
   logger.info(
-    { event: "booking_confirmed", bookingRequestId: command.bookingRequestId },
-    "booking confirmed after payment",
+    { event: "booking_payment_recorded", bookingRequestId: command.bookingRequestId },
+    "payment recorded; booking awaits Google Calendar confirmation",
   );
 }

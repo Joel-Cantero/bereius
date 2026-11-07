@@ -209,6 +209,28 @@
     "description": "Calendario de reservas",
     "integrationTitle": "Calendario ICS",
     "url": "URL HTTPS del calendario ICS",
+    "googleSettings": {
+      "title": "Calendario de Google para escribir eventos",
+      "calendarId": "Id del calendario de destino",
+      "serviceAccountJson": "JSON de la cuenta de servicio",
+      "shareCalendar": "Comparte este calendario con el correo de la cuenta de servicio y dale permiso para modificar eventos.",
+      "storedCredential": "Hay una credencial de cuenta de servicio guardada. Deja este campo vacío para conservarla o introduce un JSON nuevo para sustituirla."
+    },
+    "googleBookingSync": {
+      "title": "Evento de Google Calendar",
+      "pending": "El pago está registrado. Se espera a Google Calendar antes de confirmar la reserva.",
+      "created": "Evento creado en Google Calendar; reserva confirmada.",
+      "failed": "La reserva sigue pendiente de confirmar porque no se ha podido crear su evento de Google Calendar.",
+      "retry": "Reintentar sincronización",
+      "retrying": "Sincronización añadida a la cola.",
+      "errors": {
+        "unauthenticated": "Vuelve a iniciar sesión para reintentar.",
+        "forbidden": "No tienes permiso para reintentar esta operación.",
+        "invalid": "El identificador de la reserva no es válido.",
+        "state_changed": "La reserva o la tarea ya no se pueden reintentar. Recarga la página.",
+        "unknown": "No se ha podido reintentar la sincronización. Inténtalo de nuevo."
+      }
+    },
     "previous": "Mes anterior",
     "next": "Mes siguiente",
     "today": "Hoy",
@@ -1205,12 +1227,14 @@
       "amount_mismatch": "El importe no coincide al céntimo con lo debido. Revísalo a mano.",
       "quote_busy": "Ya hay una petición en curso o muy reciente. Recarga antes de volver a intentarlo.",
       "quote_delivery_unknown": "No se puede reenviar porque el envío anterior está en curso o tiene un resultado desconocido. Compruébalo en Holded.",
+      "calendar_sync": "Google Calendar no ha podido borrar el evento de esta reserva. No se ha cancelado; restablece el acceso al calendario e inténtalo de nuevo.",
       "customer_not_found": "No hay ningún cliente ni contacto de Holded con este NIF.",
       "customer_without_email": "El contacto de Holded no tiene correo electrónico. Añádelo en Holded y vuelve a intentarlo.",
       "contract_linked": "Este contrato ya está vinculado a una solicitud. Recarga la página.",
       "authentication": "El servicio ha rechazado la credencial. Comprueba que sea correcta y que tenga permisos.",
       "connection": "No se ha podido contactar con el servicio. Inténtalo de nuevo más tarde.",
       "not_found": "El servicio responde pero no encuentra el recurso. Revisa la URL base y el identificador del formulario.",
+      "calendar_not_found": "Google Calendar no encuentra este calendario. Comprueba el id y los permisos para compartirlo.",
       "rejected": "El servicio ha rechazado la petición. Revisa la configuración.",
       "unknown": "No se ha podido completar la acción."
     },
@@ -1318,6 +1342,7 @@
         "GRAVITY_FORMS": "Gravity Forms",
         "BOOKING_MAIL": "Correo de notificaciones",
         "CALENDAR_ICS": "Calendario ICS",
+        "GOOGLE_CALENDAR": "Calendario de Google para escritura",
         "WORDPRESS": "WordPress"
       },
       "choose": "Elige una opción"

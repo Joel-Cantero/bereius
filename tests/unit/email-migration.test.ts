@@ -61,6 +61,7 @@ describe("completed HTTP email migration", () => {
       "20261008142149_customer_account_management",
       "20261017075633_booking_customer_changed",
       "20261106111200_bank_payment_operations",
+      "20261107155032_google_calendar_booking_events",
     ]);
 
     const migrationSource = await combinedContents(

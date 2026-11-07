@@ -15,6 +15,7 @@ import {
   requiresReason,
   transitionBooking,
 } from "@/modules/booking/services/lifecycle";
+import { listBookingQueue } from "@/modules/booking/services/queries";
 
 const ALL_STATES: readonly BookingState[] = [
   "IN_REVIEW",
@@ -41,27 +42,35 @@ const LEGAL_TRANSITIONS: ReadonlyArray<[BookingState, BookingState]> = [
 describe.skipIf(!runIntegrationTests)("booking lifecycle integration", () => {
   const createdCustomerIds: string[] = [];
 
-  async function createBooking(state: BookingState) {
+  async function createBooking(
+    state: BookingState,
+    submittedAt = new Date(),
+    customerId?: string,
+  ) {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const customer = await db.customer.create({
-      data: {
-        taxId: `X${suffix}`.slice(0, 20),
-        name: "Fixture group",
-        email: `fixture-${suffix}@example.test`,
-      },
-    });
-    createdCustomerIds.push(customer.id);
+    let bookingCustomerId = customerId;
+    if (!bookingCustomerId) {
+      const customer = await db.customer.create({
+        data: {
+          taxId: `X${suffix}`.slice(0, 20),
+          name: "Fixture group",
+          email: `fixture-${suffix}@example.test`,
+        },
+      });
+      createdCustomerIds.push(customer.id);
+      bookingCustomerId = customer.id;
+    }
 
     return db.bookingRequest.create({
       data: {
         gravityEntryId: `entry-${suffix}`,
-        customerId: customer.id,
+        customerId: bookingCustomerId,
         state,
         boardType: "SELF_CATERING",
         startDate: new Date("2027-06-01T00:00:00.000Z"),
         endDate: new Date("2027-06-03T00:00:00.000Z"),
         headcount: 40,
-        submittedAt: new Date(),
+        submittedAt,
       },
     });
   }
@@ -96,6 +105,18 @@ describe.skipIf(!runIntegrationTests)("booking lifecycle integration", () => {
     await expect(
       db.bookingRequest.findUniqueOrThrow({ where: { id: booking.id } }),
     ).resolves.toMatchObject({ state: to });
+  });
+
+  it("orders the queue by newest submission when no sort is specified", async () => {
+    const earlier = await createBooking("IN_REVIEW", new Date("2026-11-05T12:00:00.000Z"));
+    const later = await createBooking(
+      "AWAITING_PAYMENT",
+      new Date("2026-11-06T12:00:00.000Z"),
+      earlier.customerId,
+    );
+    const queue = await listBookingQueue({ search: "Fixture group" });
+
+    expect(queue.map((booking) => booking.id)).toEqual([later.id, earlier.id]);
   });
 
   it("refuses every transition that is not declared legal", async () => {

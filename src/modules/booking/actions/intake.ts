@@ -54,7 +54,7 @@ export async function refreshIntakeAction(): Promise<IntakeActionState> {
   try {
     await requireBookingActor();
     const summary = await runIntake();
-    revalidatePath("/bookings");
+    revalidatePath("/[locale]/(console)/bookings", "page");
 
     return {
       status: "done",

@@ -32,6 +32,8 @@ import {
 } from "@/modules/booking/services/settings";
 import { getLoginPathForLocale, parseLoginLocale } from "@/modules/login/schema";
 import { CalendarSettingsForm } from "@/modules/calendar/components/calendar-settings-form";
+import { GoogleCalendarSettingsForm } from "@/modules/calendar/components/google-calendar-settings-form";
+import { saveGoogleCalendarSettings } from "@/modules/booking/actions/settings";
 
 interface SettingsPageProps {
   params: Promise<{ locale: string }>;
@@ -69,6 +71,7 @@ export default async function BookingSettingsPage({ params }: SettingsPageProps)
     holded,
     gravityForms,
     mail,
+    googleCalendar,
     catalogues,
     treasuryOptions,
     treasurySettings,
@@ -77,13 +80,14 @@ export default async function BookingSettingsPage({ params }: SettingsPageProps)
     readIntegrationConfig("HOLDED"),
     readIntegrationConfig("GRAVITY_FORMS"),
     readIntegrationConfig("BOOKING_MAIL"),
+    readIntegrationConfig("GOOGLE_CALENDAR"),
     readHoldedCatalogues(),
     listTreasuryAccountOptions(),
     getTreasuryAccountSettings(),
   ]);
 
   const statusFor = (
-    provider: "HOLDED" | "GRAVITY_FORMS" | "BOOKING_MAIL" | "CALENDAR_ICS",
+    provider: "HOLDED" | "GRAVITY_FORMS" | "BOOKING_MAIL" | "CALENDAR_ICS" | "GOOGLE_CALENDAR",
   ) =>
     statuses.find((status) => status.provider === provider);
 
@@ -114,6 +118,14 @@ export default async function BookingSettingsPage({ params }: SettingsPageProps)
         action={saveCalendarSettings}
         onTest={testIntegration.bind(null, "CALENDAR_ICS")}
         configured={statusFor("CALENDAR_ICS")?.configured ?? false}
+      />
+
+      <GoogleCalendarSettingsForm
+        action={saveGoogleCalendarSettings}
+        onTest={testIntegration.bind(null, "GOOGLE_CALENDAR")}
+        calendarId={typeof googleCalendar?.calendarId === "string" ? googleCalendar.calendarId : undefined}
+        configured={statusFor("GOOGLE_CALENDAR")?.configured ?? false}
+        hasSecret={statusFor("GOOGLE_CALENDAR")?.hasSecret ?? false}
       />
 
       <HoldedSettingsForm

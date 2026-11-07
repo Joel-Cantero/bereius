@@ -122,7 +122,7 @@ export default async function BookingsPage({ params, searchParams }: BookingsPag
   const t = await getTranslations({ locale, namespace: "Bookings" });
   const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" });
 
-  const sort = isSort(query.sort) ? query.sort : undefined;
+  const sort = isSort(query.sort) ? query.sort : "submittedAt";
   const direction: BookingQueueDirection = query.dir === "asc" ? "asc" : "desc";
   const filters = {
     q: query.q,

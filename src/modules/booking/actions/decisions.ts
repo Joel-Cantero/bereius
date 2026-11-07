@@ -19,6 +19,7 @@ import {
   updateAdvance,
 } from "@/modules/booking/services/decisions";
 import { BookingTransitionError } from "@/modules/booking/services/lifecycle";
+import { GoogleCalendarError } from "@/modules/calendar/services/google-calendar";
 
 export type DecisionActionState =
   | { status: "idle" }
@@ -34,6 +35,7 @@ export type DecisionActionState =
         | "amount_mismatch"
         | "quote_busy"
         | "quote_delivery_unknown"
+        | "calendar_sync"
         | "unknown";
     };
 
@@ -73,15 +75,18 @@ function toErrorState(error: unknown): DecisionActionState {
       reason: error.code === "amount_mismatch" ? "amount_mismatch" : "invalid",
     };
   }
+  if (error instanceof GoogleCalendarError) {
+    return { status: "error", reason: "calendar_sync" };
+  }
   if (error instanceof z.ZodError) {
     return { status: "error", reason: "invalid" };
   }
   return { status: "error", reason: "unknown" };
 }
 
-function refresh(bookingRequestId: string) {
-  revalidatePath("/bookings");
-  revalidatePath(`/bookings/${bookingRequestId}`);
+function refresh() {
+  revalidatePath("/[locale]/(console)/bookings", "page");
+  revalidatePath("/[locale]/(console)/bookings/[id]", "page");
 }
 
 async function approve(
@@ -96,7 +101,7 @@ async function approve(
     });
 
     await approveBooking({ ...input, actorUserId: actor.userId, sendQuote });
-    refresh(input.bookingRequestId);
+    refresh();
     return { status: "done" };
   } catch (error) {
     logger.warn(
@@ -137,7 +142,7 @@ export async function updateAdvanceAction(
       actorUserId: actor.userId,
       advanceCents: Math.round(input.advance * 100),
     });
-    refresh(input.bookingRequestId);
+    refresh();
     return { status: "done" };
   } catch (error) {
     return toErrorState(error);
@@ -157,7 +162,7 @@ export async function rejectBookingAction(
     });
 
     await rejectBooking({ ...input, actorUserId: actor.userId });
-    refresh(input.bookingRequestId);
+    refresh();
     return { status: "done" };
   } catch (error) {
     return toErrorState(error);
@@ -176,7 +181,7 @@ export async function cancelBookingAction(
     });
 
     await cancelBooking({ ...input, actorUserId: actor.userId });
-    refresh(input.bookingRequestId);
+    refresh();
     return { status: "done" };
   } catch (error) {
     return toErrorState(error);
@@ -204,7 +209,7 @@ export async function recordPaymentAction(
       reference: input.reference ?? null,
     });
 
-    refresh(input.bookingRequestId);
+    refresh();
     return { status: "done" };
   } catch (error) {
     return toErrorState(error);

@@ -93,6 +93,56 @@ test("administrator can parameterize a write-only ICS source", async ({ page, co
   await expect(section.getByRole("alert")).toBeVisible();
 });
 
+test("administrator can configure the writable Google calendar without exposing credentials", async ({ page, context, baseURL }) => {
+  const user = await seedAuthenticatedUser();
+  const pool = getPool();
+  try { await pool.query('UPDATE "User" SET "role" = $1 WHERE "id" = $2', ["ADMINISTRATOR", user.userId]); }
+  finally { await pool.end(); }
+  await installAuthSessionCookie(context, user.sessionToken, baseURL!);
+  await page.goto("/es/bookings/settings");
+
+  const section = page.getByRole("region", { name: es.Calendar.googleSettings.title });
+  const credential = section.getByLabel(es.Calendar.googleSettings.serviceAccountJson);
+  await expect(section.getByLabel(es.Calendar.googleSettings.calendarId)).toBeVisible();
+  await expect(credential).toBeEmpty();
+  await section.getByLabel(es.Calendar.googleSettings.calendarId).fill("calendar@example.test");
+  await credential.fill("not-json");
+  await section.getByRole("button", { name: es.Bookings.settings.save, exact: true }).click();
+  await expect(section.getByRole("alert")).toHaveText(es.Bookings.errors.invalid);
+});
+
+test("operator sees a failed Google sync and retry control on a paid booking", async ({ page, context, baseURL }) => {
+  const user = await seedAuthenticatedUser();
+  const suffix = randomUUID();
+  const customerId = `google-sync-customer-${suffix}`;
+  const bookingId = `google-sync-booking-${suffix}`;
+  const jobId = randomUUID();
+  const jobKey = `calendar.booking-event:${bookingId}`;
+  const pool = getPool();
+  try {
+    await pool.query('INSERT INTO "Customer" ("id", "taxId", "name", "email", "createdAt", "updatedAt") VALUES ($1,$2,$3,$4,NOW(),NOW())', [customerId, randomUUID(), "Google sync fixture", user.email]);
+    await pool.query(`INSERT INTO "BookingRequest" ("id", "gravityEntryId", "customerId", "state", "boardType", "startDate", "endDate", "headcount", "advanceCents", "depositCents", "submittedAt", "createdAt", "updatedAt") VALUES ($1,$2,$3,'AWAITING_PAYMENT','SELF_CATERING','2026-12-06','2026-12-08',30,43200,20000,NOW(),NOW(),NOW())`, [bookingId, randomUUID(), customerId]);
+    await pool.query('INSERT INTO "Payment" ("id", "bookingRequestId", "amountCents", "receivedAt", "recordedById", "createdAt") VALUES ($1,$2,63200,NOW(),$3,NOW())', [randomUUID(), bookingId, user.userId]);
+    await pool.query(`INSERT INTO "IntegrationJob" ("id", "kind", "idempotencyKey", "payload", "status", "attempts", "runAfter", "lastError", "createdAt", "updatedAt") VALUES ($1,'calendar.booking-event',$2,$3::jsonb,'DEAD',6,NOW(),'unavailable',NOW(),NOW())`, [jobId, jobKey, JSON.stringify({ bookingRequestId: bookingId })]);
+  } finally { await pool.end(); }
+
+  try {
+    await installAuthSessionCookie(context, user.sessionToken, baseURL!);
+    await page.goto(`/es/bookings/${bookingId}`);
+    await expect(page.getByText(es.Calendar.googleBookingSync.failed, { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: es.Calendar.googleBookingSync.retry, exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Google sync fixture", exact: true })).toBeVisible();
+  } finally {
+    const cleanup = getPool();
+    try {
+      await cleanup.query('DELETE FROM "IntegrationJob" WHERE "id" = $1', [jobId]);
+      await cleanup.query('DELETE FROM "Payment" WHERE "bookingRequestId" = $1', [bookingId]);
+      await cleanup.query('DELETE FROM "BookingRequest" WHERE "id" = $1', [bookingId]);
+      await cleanup.query('DELETE FROM "Customer" WHERE "id" = $1', [customerId]);
+    } finally { await cleanup.end(); }
+  }
+});
+
 test("centers the calendar and spans a three-day stay once on wide desktop", async ({ page, context, baseURL }, testInfo) => {
   test.skip(!process.env.E2E_PROVIDER_HTTP_URL, "Requires the isolated calendar HTTP fixture");
   await installCalendarFixture();

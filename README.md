@@ -119,6 +119,15 @@ The source must resolve to public addresses and return HTTP 200 without redirect
 localized states. Apply the additive `CALENDAR_ICS` migration before deploying this feature. No
 additional environment variable is needed beyond the existing `BOOKING_SECRET_KEY`.
 
+Booking integration settings also support one writable Google Calendar, separate from the
+read-only ICS source. Administrators share the destination calendar with the configured service
+account as a writer and save its calendar ID plus credential through Integrations. Paid bookings
+remain awaiting payment confirmation until their all-day Google event has been reconciled; the
+departure date is exclusive. Google failures preserve the recorded payment and expose a retry in the
+booking detail. Confirmed bookings are not backfilled, and cancellation removes the managed Google
+event before changing the local booking state. Enable Google Calendar API in the Google Cloud
+project; automated tests never use live credentials.
+
 ## Deployment
 
 Push to `main` triggers [`.github/workflows/ci.yml`](.github/workflows/ci.yml). After every parallel

@@ -1,0 +1,1 @@
+export const GOOGLE_CALENDAR_BOOKING_JOB_KIND = "calendar.booking-event";

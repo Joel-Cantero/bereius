@@ -58,7 +58,7 @@ describe("manual booking intake action", () => {
     });
     expect(mocks.requireBookingActor).toHaveBeenCalledOnce();
     expect(mocks.runIntake).toHaveBeenCalledOnce();
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/bookings");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/[locale]/(console)/bookings", "page");
   });
 
   it("does not run intake for an unauthenticated request", async () => {
